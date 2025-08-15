@@ -312,10 +312,11 @@ class CarEnv(BaseEnv):
         if self.num_cars > 1:
             self._cumulative_rewards = [0.0] * self.num_cars
             
-            # Reset per-car collision tracking
+            # Reset per-car collision tracking and lap count tracking
             for car_index in range(self.num_cars):
                 setattr(self, f'_last_penalized_collision_time_{car_index}', -float('inf'))
                 setattr(self, f'_previous_car_position_{car_index}', None)
+                setattr(self, f'_previous_lap_count_{car_index}', 0)
         
         # Reset termination reason
         self.termination_reason = None

@@ -36,7 +36,7 @@ def main():
     #env = CarEnv(render_mode="human", track_file="tracks/nascar.track", reset_on_lap=False, num_cars=num_cars, car_names=car_names)
     env = CarEnv(track_file="tracks/nascar.track", 
                  num_cars=num_cars, 
-                 reset_on_lap=False, 
+                 reset_on_lap=True, 
                  render_mode="human",
                  enable_fps_limit=False,
                  car_names=car_names)
@@ -294,13 +294,22 @@ def main():
                 # Display termination reason
                 termination_type = "terminated" if terminated else "truncated"
                 reason = info.get("termination_reason", "unknown") if not isinstance(info, list) else info[0].get("termination_reason", "unknown")
-                cumulative_reward = info.get("cumulative_reward", total_reward) if not isinstance(info, list) else info[0].get("cumulative_reward", total_reward)
                 sim_time = info.get("simulation_time", 0) if not isinstance(info, list) else info[0].get("simulation_time", 0)
                 
                 print(f"   ⚠️  Episode {termination_type} at step {step}")
                 print(f"   📊 Reason: {reason}")
                 print(f"   ⏱️  Simulation time: {sim_time:.1f}s")
-                print(f"   💰 Cumulative reward: {cumulative_reward:.2f}")
+                
+                # Display cumulative rewards for each car
+                print(f"   💰 Cumulative rewards per car:")
+                for car_idx in range(num_cars):
+                    car_name = car_names[car_idx] if car_idx < len(car_names) else f"Car {car_idx}"
+                    car_cumulative_reward = car_rewards[car_idx]
+                    print(f"      🚗 {car_name}: {car_cumulative_reward:.2f}")
+                
+                # Also show total across all cars for reference
+                total_all_cars_reward = sum(car_rewards.values())
+                print(f"   🏆 Total (all cars): {total_all_cars_reward:.2f}")
                 
                 # Show collision stats if available
                 collision_stats = info.get("collisions", {}) if not isinstance(info, list) else info[0].get("collisions", {})
@@ -310,8 +319,6 @@ def main():
                         print(f"   💥 Max collision impulse: {collision_stats['max_impulse']:.0f}")
                 
                 # Reset for next episode
-                if num_cars > 1:
-                    ptime.sleep(60)
                 obs, info = env.reset()
                 total_reward = 0.0
                 
