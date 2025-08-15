@@ -38,7 +38,7 @@ def main():
                  num_cars=num_cars, 
                  reset_on_lap=False, 
                  render_mode="human",
-                 enable_fps_limit=True,
+                 enable_fps_limit=False,
                  car_names=car_names)
     
     print(f"🎮 CONTROLS:")
@@ -64,6 +64,7 @@ def main():
     # Reward tracking (per car)
     car_rewards = {}    # Total reward per car
     lap_start_rewards = {}  # Reward when lap started (to calculate lap reward)
+    lap_timing_started = {}  # Track if lap timing has started for each car
     
     # Overall best lap tracking (across all cars)
     overall_best_lap_time = None
@@ -77,6 +78,7 @@ def main():
         previous_lap_count[i] = 0
         car_rewards[i] = 0.0
         lap_start_rewards[i] = 0.0
+        lap_timing_started[i] = False
     
     # Current followed car info
     current_followed_car = 0
@@ -174,7 +176,13 @@ def main():
                     car_info = info[car_idx]
                     lap_timing = car_info.get('lap_timing', {})
                     current_lap_count = lap_timing.get('lap_count', 0)
+                    is_timing = lap_timing.get('is_timing', False)
                     car_name = car_names[car_idx] if car_idx < len(car_names) else f"Car {car_idx}"
+                    
+                    # Check if lap timing just started for this car (car crossed start line for first time)
+                    if is_timing and not lap_timing_started[car_idx]:
+                        lap_timing_started[car_idx] = True
+                        lap_start_rewards[car_idx] = car_rewards[car_idx]  # Record reward when lap timing starts
                     
                     # Check if this car completed a lap
                     if current_lap_count > previous_lap_count[car_idx]:
@@ -226,7 +234,13 @@ def main():
                 current_followed_car = info.get('followed_car_index', 0)
                 lap_timing = info.get('lap_timing', {})
                 current_lap_count = lap_timing.get('lap_count', 0)
+                is_timing = lap_timing.get('is_timing', False)
                 current_car_name = car_names[current_followed_car] if current_followed_car < len(car_names) else f"Car {current_followed_car}"
+                
+                # Check if lap timing just started for this car (car crossed start line for first time)
+                if is_timing and not lap_timing_started[current_followed_car]:
+                    lap_timing_started[current_followed_car] = True
+                    lap_start_rewards[current_followed_car] = car_rewards[current_followed_car]  # Record reward when lap timing starts
                 
                 # Check if followed car completed a lap (single car mode)
                 if current_lap_count > previous_lap_count[current_followed_car]:
@@ -311,6 +325,7 @@ def main():
                     previous_lap_count[i] = 0
                     car_rewards[i] = 0.0
                     lap_start_rewards[i] = 0.0
+                    lap_timing_started[i] = False
                 
                 # Reset overall best lap tracking
                 overall_best_lap_time = None

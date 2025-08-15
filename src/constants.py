@@ -617,18 +617,18 @@ REWARD_SPEED_MULTIPLIER = 0.02  # Bonus per m/s of speed
 REWARD_DISTANCE_MULTIPLIER = 0.01  # Bonus per meter traveled
 REWARD_HIGH_SPEED_THRESHOLD = 25.0  # Speed threshold (m/s) for performance bonus (~90 km/h)
 REWARD_HIGH_SPEED_BONUS = 1.0  # Bonus when exceeding high speed threshold
-REWARD_LAP_COMPLETION = 500.0  # Bonus per completed lap
+REWARD_LAP_COMPLETION = 150.0  # Bonus per completed lap
 REWARD_FAST_LAP_TIME = 40.0  # Time threshold (seconds) for fast lap bonus
-REWARD_FAST_LAP_BONUS = 1000.0  # Bonus for completing lap under threshold time
+REWARD_FAST_LAP_BONUS = 150.0  # Bonus for completing lap under threshold time
 
 # Negative Rewards (Penalties)
 PENALTY_LOW_SPEED_THRESHOLD = 0.278  # Speed threshold (m/s) for low speed penalty (1 km/h)
 PENALTY_LOW_SPEED_RATE = 0.001  # Penalty per second when below low speed threshold
 # Scaled collision penalties based on severity
-PENALTY_COLLISION_MINOR = 20.0  # Light scrape penalty
+PENALTY_COLLISION_MINOR = 25.0  # Light scrape penalty
 PENALTY_COLLISION_MODERATE = 50.0  # Moderate hit penalty
-PENALTY_COLLISION_SEVERE = 150.0  # Severe crash penalty
-PENALTY_COLLISION_CRITICAL = 300.0  # Critical crash penalty
+PENALTY_COLLISION_SEVERE = 75.0  # Severe crash penalty
+PENALTY_COLLISION_CRITICAL = 100.0  # Critical crash penalty
 PENALTY_COLLISION = 10.0  # Default/legacy penalty for backward compatibility
 PENALTY_OFF_TRACK = 5.0  # Penalty for leaving track boundaries
 
