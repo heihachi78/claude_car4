@@ -7,6 +7,7 @@ from typing import Optional
 from .constants import (
     DEFAULT_WINDOW_SIZE,
     DEFAULT_RENDER_FPS,
+    UNLIMITED_FPS_CAP,
     BACKGROUND_COLOR,
     FPS_COLOR_LOW,
     FPS_COLOR_NORMAL,
@@ -343,8 +344,8 @@ class Renderer:
         if self.enable_fps_limit:
             self.clock.tick(self.render_fps)
         else:
-            # Still call tick() to maintain pygame's internal timing for events
-            self.clock.tick()
+            # Use high FPS cap instead of unlimited to prevent physics timing issues
+            self.clock.tick(UNLIMITED_FPS_CAP)
     
     def _calculate_manual_fps(self) -> float:
         """Calculate FPS manually when not using pygame's FPS limiting."""

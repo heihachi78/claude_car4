@@ -15,7 +15,8 @@ COLLISION_MASK_TRACK_WALLS = 0xFFFF       # Track walls collide with everything
 COLLISION_MASK_CARS = 0x0001              # Cars only collide with track walls (not other cars)
 
 # Rendering Constants
-DEFAULT_RENDER_FPS = 60
+DEFAULT_RENDER_FPS = 120
+UNLIMITED_FPS_CAP = 240  # FPS cap to use when enable_fps_limit=False (prevents physics timing issues)
 DEFAULT_WINDOW_WIDTH = 1024
 DEFAULT_WINDOW_HEIGHT = 768
 DEFAULT_WINDOW_SIZE = (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)

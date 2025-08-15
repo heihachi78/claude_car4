@@ -33,9 +33,12 @@ def main():
     print(f"🚗 MULTI-CAR RACING DEMO - {num_cars} Named Cars")
     print("=" * 50)
     
-    env = CarEnv(render_mode="human", track_file="tracks/nascar.track", reset_on_lap=False, num_cars=num_cars, car_names=car_names)
-    #env = CarEnv(render_mode="human", track_file="tracks/nascar2.track", num_cars=num_cars)
-    #env = CarEnv(render_mode="human", track_file="tracks/straight3200.track", num_cars=num_cars)
+    #env = CarEnv(render_mode="human", track_file="tracks/nascar.track", reset_on_lap=False, num_cars=num_cars, car_names=car_names)
+    env = CarEnv(track_file="tracks/nascar.track", 
+                 num_cars=num_cars, 
+                 reset_on_lap=False, 
+                 #render_mode="human",
+                 car_names=car_names)
     
     print(f"🎮 CONTROLS:")
     print(f"   Keys 0-{min(num_cars-1, 9)}: Switch camera between cars")

@@ -144,6 +144,8 @@ class CarEnv(BaseEnv):
         
         # Rendering system
         self.renderer = None
+        self.headless_clock = None  # Clock for timing in headless mode
+        
         if self.render_mode == RENDER_MODE_HUMAN:
             self.renderer = Renderer(
                 window_size=DEFAULT_WINDOW_SIZE,
@@ -151,6 +153,13 @@ class CarEnv(BaseEnv):
                 track=self.track,
                 enable_fps_limit=enable_fps_limit  # Use the parameter from constructor
             )
+        else:
+            # Initialize pygame clock for headless mode to maintain proper physics timing
+            import pygame
+            if not pygame.get_init():
+                pygame.init()
+            self.headless_clock = pygame.time.Clock()
+            self.headless_enable_fps_limit = enable_fps_limit
             
         # Environment state
         self.simulation_time = 0.0
@@ -470,6 +479,14 @@ class CarEnv(BaseEnv):
         continuous_action_array = np.array([throttle, brake, steering], dtype=np.float32)
         self.update_physics(continuous_action_array)
         
+        # Maintain timing in headless mode
+        if self.headless_clock:
+            if self.headless_enable_fps_limit:
+                self.headless_clock.tick(self.metadata["render_fps"])
+            else:
+                from .constants import UNLIMITED_FPS_CAP
+                self.headless_clock.tick(UNLIMITED_FPS_CAP)
+        
         # Track input for stuck detection
         self._track_input(throttle, brake, steering)
         
@@ -525,6 +542,14 @@ class CarEnv(BaseEnv):
         
         # Update physics with filtered actions
         self.update_physics(filtered_actions)
+        
+        # Maintain timing in headless mode
+        if self.headless_clock:
+            if self.headless_enable_fps_limit:
+                self.headless_clock.tick(self.metadata["render_fps"])
+            else:
+                from .constants import UNLIMITED_FPS_CAP
+                self.headless_clock.tick(UNLIMITED_FPS_CAP)
         
         # Check for new collisions and disable cars if necessary
         self._check_and_disable_cars()
@@ -1344,6 +1369,10 @@ class CarEnv(BaseEnv):
             
         if self.car_physics:
             self.car_physics.cleanup()
+            
+        # Clean up headless clock
+        if self.headless_clock:
+            self.headless_clock = None
             
         logger.info("CarEnv closed")
     
