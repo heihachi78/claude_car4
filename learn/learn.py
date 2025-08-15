@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+import math
 
 from stable_baselines3 import TD3
 from stable_baselines3.common.vec_env import DummyVecEnv
@@ -93,27 +94,44 @@ TARGET_POLICY_NOISE_CLIP = 0.3
 log_dir = "./logs/"
 os.makedirs(log_dir, exist_ok=True)
 
-# Environment factory
-def make_env():
-    env = CarEnv(
-        render_mode=None,
-        track_file="tracks/nascar.track",
-        discrete_action_space=False,
-        enable_fps_limit=False,
-        reset_on_lap=True
-    )
-    env = Monitor(env, filename=os.path.join(log_dir, "monitor.csv"))
-    return env
+def make_env(rank):
+    def _init():
+        env = CarEnv(
+            render_mode=None,
+            track_file="tracks/nascar.track",
+            discrete_action_space=False,
+            enable_fps_limit=False,
+            reset_on_lap=True
+        )
+        return Monitor(env, filename=os.path.join(log_dir, f"monitor_{rank}.csv"))
+    return _init
 
-# Vectorized environment
-env = DummyVecEnv([make_env])
+# Vectorized environment with 8 parallel envs
+env = DummyVecEnv([make_env for _ in range(8)])
 
-# Action noise
+# Action noise needs shape according to number of actions in a single env
 n_actions = env.action_space.shape[-1]
 action_noise = NormalActionNoise(
     mean=np.zeros(n_actions),
     sigma=EXPLORATION_NOISE_STD * np.ones(n_actions)
 )
+
+def linear_schedule(initial_value, final_value=1e-5):
+    initial_value = float(initial_value)
+    final_value = float(final_value)
+    def schedule(progress_remaining: float) -> float:
+        # progress_remaining goes from 1.0 (start) to 0.0 (end)
+        return final_value + (initial_value - final_value) * progress_remaining
+    return schedule
+
+def cosine_schedule(initial_value, final_value=1e-5):
+    initial_value = float(initial_value)
+    final_value = float(final_value)
+    def schedule(progress_remaining: float) -> float:
+        # 1.0 -> 0.0; map to cosine(0..pi)
+        cos_term = 0.5 * (1 + math.cos(math.pi * (1 - progress_remaining)))
+        return final_value + (initial_value - final_value) * cos_term
+    return schedule
 
 # Try to load existing model
 try:
@@ -125,7 +143,7 @@ try:
 except:
     model = TD3(
         "MlpPolicy", env,
-        learning_rate=3e-5,
+        learning_rate=cosine_schedule(3e-4, 1e-5),
         buffer_size=1_000_000,
         batch_size=256,
         tau=0.005,
@@ -137,7 +155,7 @@ except:
         target_noise_clip=TARGET_POLICY_NOISE_CLIP,
         verbose=1,
         tensorboard_log='./tensorboard/',
-        learning_starts=360_000,
+        learning_starts=125_000,
         policy_kwargs=dict(net_arch=[1024, 1024])
     )
     print("Created new model")
