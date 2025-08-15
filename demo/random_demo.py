@@ -15,7 +15,10 @@ from src.car_env import CarEnv
 def main():
     print("=" * 50)
     
-    env = CarEnv(render_mode="human", track_file="tracks/nascar.track", reset_on_lap=False)
+    env = CarEnv(render_mode="human", 
+                 track_file="tracks/nascar.track", 
+                 reset_on_lap=True,
+                 enable_fps_limit=False)
     
     try:
         # Reset environment first

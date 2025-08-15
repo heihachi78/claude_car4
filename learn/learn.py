@@ -27,7 +27,6 @@ class SaveModelCallback(BaseCallback):
         os.makedirs(save_path, exist_ok=True)
         
     def _on_step(self) -> bool:
-        # Check if we should save the model
         if self.n_calls % self.save_freq == 0:
             self.save_count += 1
             model_path = os.path.join(self.save_path, f"model_{self.num_timesteps}_steps")
@@ -37,20 +36,64 @@ class SaveModelCallback(BaseCallback):
             if self.verbose > 0:
                 print(f"Saved model checkpoint to {model_path} at step {self.num_timesteps}")
                 
-        return True  # Continue training
+        return True
 
 
-# Noise parameters for TD3 exploration
-# These values are tuned for car control where actions are in range [-1, 1] or [0, 1]
-EXPLORATION_NOISE_STD = 0.1  # Standard deviation for exploration noise (adds randomness to actions)
-TARGET_POLICY_NOISE_STD = 0.15  # Standard deviation for target policy noise (smooths Q-learning targets)
-TARGET_POLICY_NOISE_CLIP = 0.25  # Clip value for target policy noise (prevents extreme noise values)
+class DecayNoiseCallback(BaseCallback):
+    """
+    Callback to decay both action noise and target policy noise every fixed number of steps.
+    """
+    def __init__(
+        self,
+        decay_freq: int,
+        decay_factor: float,
+        min_action_sigma: float,
+        min_target_policy_noise: float,
+        min_target_noise_clip: float,
+        verbose: int = 0
+    ):
+        super().__init__(verbose)
+        self.decay_freq = decay_freq
+        self.decay_factor = decay_factor
+        self.min_action_sigma = min_action_sigma
+        self.min_target_policy_noise = min_target_policy_noise
+        self.min_target_noise_clip = min_target_noise_clip
 
-# Create log dir for Monitor
+    def _on_step(self) -> bool:
+        if self.n_calls % self.decay_freq == 0:
+            # Decay exploration noise
+            current_sigma = self.model.action_noise.sigma
+            new_sigma = np.maximum(current_sigma * self.decay_factor, self.min_action_sigma)
+            self.model.action_noise.sigma = new_sigma
+
+            # Decay target policy noise
+            current_target_noise = self.model.target_policy_noise
+            new_target_noise = max(current_target_noise * self.decay_factor, self.min_target_policy_noise)
+            self.model.target_policy_noise = new_target_noise
+
+            # Decay target noise clip
+            current_clip = self.model.target_noise_clip
+            new_clip = max(current_clip * self.decay_factor, self.min_target_noise_clip)
+            self.model.target_noise_clip = new_clip
+
+            if self.verbose > 0:
+                print(f"[Noise Decay] Step {self.num_timesteps}: "
+                      f"action_noise.sigma={new_sigma}, "
+                      f"target_policy_noise={new_target_noise}, "
+                      f"target_noise_clip={new_clip}")
+        return True
+
+
+# Noise parameters
+EXPLORATION_NOISE_STD = 0.1
+TARGET_POLICY_NOISE_STD = 0.15
+TARGET_POLICY_NOISE_CLIP = 0.3
+
+# Create log dir
 log_dir = "./logs/"
 os.makedirs(log_dir, exist_ok=True)
 
-# Create environment factory function for vectorization
+# Environment factory
 def make_env():
     env = CarEnv(
         render_mode=None,
@@ -59,27 +102,25 @@ def make_env():
         enable_fps_limit=False,
         reset_on_lap=True
     )
-    env = Monitor(env, filename=os.path.join(log_dir, "monitor.csv"))  # tracks rewards
+    env = Monitor(env, filename=os.path.join(log_dir, "monitor.csv"))
     return env
 
-# Create vectorized environment
+# Vectorized environment
 env = DummyVecEnv([make_env])
 
-# Get action space dimensions for noise creation
+# Action noise
 n_actions = env.action_space.shape[-1]
-
-# Create action noise for exploration
 action_noise = NormalActionNoise(
-    mean=np.zeros(n_actions), 
+    mean=np.zeros(n_actions),
     sigma=EXPLORATION_NOISE_STD * np.ones(n_actions)
 )
 
 # Try to load existing model
 try:
-    model = TD3.load("./learn/checkpoints/XXXXXXXXXXXXX")
+    model = TD3.load("./learn/checkpoints/model_XXXXXXXXXXXXX_steps.zip")
     model.set_env(env)
-    if os.path.exists("./learn/checkpoints/replay_buffer.pkl"):
-        model.load_replay_buffer("./learn/checkpoints/replay_buffer.pkl")
+    if os.path.exists("./learn/checkpoints/replay_buffer_XXXXXXXXXXXXX.pkl"):
+        model.load_replay_buffer("./learn/checkpoints/replay_buffer_XXXXXXXXXXXXX.pkl")
     print("Loaded existing model for continued training")
 except:
     model = TD3(
@@ -91,26 +132,33 @@ except:
         gamma=0.99,
         train_freq=1,
         gradient_steps=4,
-        action_noise=action_noise,  # Add exploration noise
-        target_policy_noise=TARGET_POLICY_NOISE_STD,  # Target policy smoothing noise
-        target_noise_clip=TARGET_POLICY_NOISE_CLIP,  # Clip target policy noise
+        action_noise=action_noise,
+        target_policy_noise=TARGET_POLICY_NOISE_STD,
+        target_noise_clip=TARGET_POLICY_NOISE_CLIP,
         verbose=1,
         tensorboard_log='./tensorboard/',
-        learning_starts = 500_000,
-        policy_kwargs = dict(net_arch=[1024, 1024])
+        learning_starts=360_000,
+        policy_kwargs=dict(net_arch=[1024, 1024])
     )
     print("Created new model")
 
-# Create callback for saving model every 250,000 steps
+# Callbacks
 save_callback = SaveModelCallback(save_freq=250000, save_path="./learn/checkpoints", verbose=1)
+decay_noise_callback = DecayNoiseCallback(
+    decay_freq=2_500_000,
+    decay_factor=0.8,
+    min_action_sigma=0.02,
+    min_target_policy_noise=0.05,
+    min_target_noise_clip=0.1,
+    verbose=1
+)
 
-# Training loop with callback
-# Train for 25 million steps total (100 x 250,000)
+# Train
 model.learn(
-    total_timesteps=25_000_000, 
+    total_timesteps=25_000_000,
     tb_log_name="run_1",
     log_interval=1,
-    callback=save_callback
+    callback=[save_callback, decay_noise_callback]
 )
 
 # Save final model

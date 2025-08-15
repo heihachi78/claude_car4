@@ -16,7 +16,7 @@ def main():
     print("=" * 50)
     
     # Multi-car demo configuration with custom names
-    num_cars = 10  # Change this to test different numbers of cars (1-10)
+    num_cars = 1  # Change this to test different numbers of cars (1-10)
     car_names = [
         "Lightning",
         "Thunder",
