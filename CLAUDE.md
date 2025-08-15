@@ -69,9 +69,6 @@ This is a realistic car racing simulation and reinforcement learning environment
 # Run basic environment test
 python demo/car_demo.py
 
-# Run simplified physics demo
-python demo/simplified_physics.py
-
 # Run random action demo
 python demo/random_demo.py
 
@@ -85,7 +82,8 @@ python demo/discrete_action_demo.py
 python learn/learn.py
 
 # Resume training from checkpoint (edit learn.py line 79)
-# Uncomment and update model path to resume training
+# Replace "XXXXXXXXXXXXX" with actual checkpoint filename
+# Example: model = TD3.load("./learn/checkpoints/model_500000_steps")
 ```
 
 ### Testing
@@ -100,10 +98,29 @@ pytest test/test_car.py
 pytest -v
 ```
 
+### Monitoring & Debugging
+```bash
+# View training logs and metrics
+tensorboard --logdir=./tensorboard/
+
+# Monitor training progress
+tail -f logs/monitor.csv
+
+# Run with debug mode (shows physics info)
+# Use 'D' key during rendering to toggle debug display
+```
+
 ### Installation
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# Dependencies include:
+# - gymnasium==0.29.1 (RL environment interface)
+# - box2d-py==2.3.8 (physics simulation)
+# - pygame==2.5.2 (rendering)
+# - numpy==1.26.3 (numerical operations)
+# - stable-baselines3 (for training, not in requirements.txt)
 ```
 
 ## Important Implementation Details
@@ -159,3 +176,27 @@ All physics constants in `src/constants.py`:
 - Rendering FPS can be limited or unlimited via `enable_fps_limit` parameter
 - Use `reset_on_lap=True` for training, `False` for demo/testing
 - Disable rendering (`render_mode=None`) for faster training
+
+## Training Configuration
+
+### TD3 Hyperparameters (learn/learn.py)
+- Learning rate: 3e-5
+- Buffer size: 1,000,000
+- Batch size: 256
+- Network architecture: [1024, 1024] hidden layers
+- Exploration noise: 0.1 std
+- Target policy noise: 0.15 std
+- Checkpoints saved every 250,000 steps
+
+### Model Checkpoints
+Available in `learn/checkpoints/`:
+- `model_250000_steps.zip` - Early training checkpoint
+- `model_500000_steps.zip` - Mid training checkpoint
+- `replay_buffer_*.pkl` - Experience replay buffers
+
+## File Structure Notes
+
+- `test/` directory contains deleted test files (see git status)
+- `logs/monitor.csv` tracks training rewards and episode statistics
+- `tracks/*.track` files define racing circuits
+- `tensorboard/` contains training metrics for visualization
