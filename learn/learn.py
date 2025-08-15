@@ -87,8 +87,8 @@ class DecayNoiseCallback(BaseCallback):
 
 # Noise parameters
 EXPLORATION_NOISE_STD = 0.1
-TARGET_POLICY_NOISE_STD = 0.15
-TARGET_POLICY_NOISE_CLIP = 0.3
+TARGET_POLICY_NOISE_STD = 0.2
+TARGET_POLICY_NOISE_CLIP = 0.5
 
 # Create log dir
 log_dir = "./logs/"
