@@ -18,6 +18,7 @@ from .constants import (
     FULLSCREEN_TOGGLE_KEY,
     TRACK_INFO_TOGGLE_KEY,
     TRACK_INFO_TEXT_COLOR,
+    CAMERA_MODE_CAR_FOLLOW,
     TRACK_INFO_BG_COLOR,
     TRACK_INFO_BG_ALPHA,
     TRACK_INFO_PADDING,
@@ -307,16 +308,16 @@ class Renderer:
                 car_name = cars_data[followed_car_index].get('name', f"Car {followed_car_index}")
             self._render_action_bars(current_action, car_name)
         
-        # Render lap times if timing info is available
-        if lap_timing_info is not None:
+        # Render lap times if timing info is available and not in car follow mode
+        if lap_timing_info is not None and self.camera.get_camera_mode() != CAMERA_MODE_CAR_FOLLOW:
             self._render_lap_times(lap_timing_info)
         
         # Render reward if info is available
         if reward_info is not None and reward_info.get('show', False):
             self._render_reward(reward_info)
         
-        # Render race tables if data is available
-        if race_positions_data is not None or best_lap_times_data is not None:
+        # Render race tables if data is available and not in car follow mode
+        if (race_positions_data is not None or best_lap_times_data is not None) and self.camera.get_camera_mode() != CAMERA_MODE_CAR_FOLLOW:
             self._render_race_tables(race_positions_data, best_lap_times_data)
         
         # Calculate FPS - use pygame clock when FPS limited, manual calculation when uncapped
