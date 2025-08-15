@@ -37,7 +37,8 @@ def main():
     env = CarEnv(track_file="tracks/nascar.track", 
                  num_cars=num_cars, 
                  reset_on_lap=False, 
-                 #render_mode="human",
+                 render_mode="human",
+                 enable_fps_limit=True,
                  car_names=car_names)
     
     print(f"🎮 CONTROLS:")
@@ -60,6 +61,10 @@ def main():
     total_laps = {}     # Total laps per car
     previous_lap_count = {}  # Previous lap count per car
     
+    # Reward tracking (per car)
+    car_rewards = {}    # Total reward per car
+    lap_start_rewards = {}  # Reward when lap started (to calculate lap reward)
+    
     # Overall best lap tracking (across all cars)
     overall_best_lap_time = None
     overall_best_lap_car = None
@@ -70,6 +75,8 @@ def main():
         best_lap_time[i] = None
         total_laps[i] = 0
         previous_lap_count[i] = 0
+        car_rewards[i] = 0.0
+        lap_start_rewards[i] = 0.0
     
     # Current followed car info
     current_followed_car = 0
@@ -145,10 +152,15 @@ def main():
 
             obs, reward, terminated, truncated, info = env.step(action)
             
-            # Handle multi-car rewards
+            # Handle multi-car rewards - track ALL cars' rewards
             if isinstance(reward, np.ndarray):
-                total_reward += reward[current_followed_car]  # Use followed car's reward
+                # Multi-car rewards: update each car's total
+                for car_idx in range(min(num_cars, len(reward))):
+                    car_rewards[car_idx] += reward[car_idx]
+                total_reward += reward[current_followed_car]  # Use followed car's reward for display
             else:
+                # Single car reward: update only the followed car
+                car_rewards[current_followed_car] += reward
                 total_reward += reward
 
             # Handle multi-car info and check lap completions for ALL cars
@@ -172,6 +184,10 @@ def main():
                             all_lap_times[car_idx].append(last_lap_time)
                             total_laps[car_idx] += 1
                             
+                            # Calculate lap reward (reward earned during this lap)
+                            lap_reward = car_rewards[car_idx] - lap_start_rewards[car_idx]
+                            lap_start_rewards[car_idx] = car_rewards[car_idx]  # Reset for next lap
+                            
                             # Format lap time for display
                             minutes = int(last_lap_time // 60)
                             seconds = last_lap_time % 60
@@ -180,13 +196,13 @@ def main():
                             # Update best lap for this car
                             if best_lap_time[car_idx] is None or last_lap_time < best_lap_time[car_idx]:
                                 best_lap_time[car_idx] = last_lap_time
-                                print(f"🏁 {car_name} NEW BEST LAP! Time: {lap_time_str}")
+                                print(f"🏁 {car_name} NEW BEST LAP! Time: {lap_time_str} | Reward: {lap_reward:.1f}")
                                 if total_laps[car_idx] > 1:
                                     car_times = all_lap_times[car_idx]
                                     improvement = (car_times[-2] if len(car_times) > 1 else last_lap_time) - last_lap_time
                                     print(f"   ⚡ Improved by {improvement:.3f} seconds!")
                             else:
-                                print(f"🏁 {car_name} Lap {total_laps[car_idx]} completed: {lap_time_str}")
+                                print(f"🏁 {car_name} Lap {total_laps[car_idx]} completed: {lap_time_str} | Reward: {lap_reward:.1f}")
                                 if best_lap_time[car_idx]:
                                     gap = last_lap_time - best_lap_time[car_idx]
                                     print(f"   📊 Gap to best: +{gap:.3f}s")
@@ -220,6 +236,10 @@ def main():
                         all_lap_times[current_followed_car].append(last_lap_time)
                         total_laps[current_followed_car] += 1
                         
+                        # Calculate lap reward (reward earned during this lap)
+                        lap_reward = car_rewards[current_followed_car] - lap_start_rewards[current_followed_car]
+                        lap_start_rewards[current_followed_car] = car_rewards[current_followed_car]  # Reset for next lap
+                        
                         # Format lap time for display
                         minutes = int(last_lap_time // 60)
                         seconds = last_lap_time % 60
@@ -228,13 +248,13 @@ def main():
                         # Update best lap for this car
                         if best_lap_time[current_followed_car] is None or last_lap_time < best_lap_time[current_followed_car]:
                             best_lap_time[current_followed_car] = last_lap_time
-                            print(f"🏁 {current_car_name} NEW BEST LAP! Time: {lap_time_str}")
+                            print(f"🏁 {current_car_name} NEW BEST LAP! Time: {lap_time_str} | Reward: {lap_reward:.1f}")
                             if total_laps[current_followed_car] > 1:
                                 car_times = all_lap_times[current_followed_car]
                                 improvement = (car_times[-2] if len(car_times) > 1 else last_lap_time) - last_lap_time
                                 print(f"   ⚡ Improved by {improvement:.3f} seconds!")
                         else:
-                            print(f"🏁 {current_car_name} Lap {total_laps[current_followed_car]} completed: {lap_time_str}")
+                            print(f"🏁 {current_car_name} Lap {total_laps[current_followed_car]} completed: {lap_time_str} | Reward: {lap_reward:.1f}")
                             if best_lap_time[current_followed_car]:
                                 gap = last_lap_time - best_lap_time[current_followed_car]
                                 print(f"   📊 Gap to best: +{gap:.3f}s")
@@ -286,9 +306,11 @@ def main():
                 car_brakes = [0.0] * num_cars
                 car_steerings = [0.0] * num_cars
                 
-                # Reset previous lap count tracking for all cars
+                # Reset previous lap count tracking and reward tracking for all cars
                 for i in range(num_cars):
                     previous_lap_count[i] = 0
+                    car_rewards[i] = 0.0
+                    lap_start_rewards[i] = 0.0
                 
                 # Reset overall best lap tracking
                 overall_best_lap_time = None

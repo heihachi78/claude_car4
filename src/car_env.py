@@ -20,6 +20,7 @@ from .distance_sensor import DistanceSensor
 from .lap_timer import LapTimer
 from .constants import (
     DEFAULT_WINDOW_SIZE,
+    DEFAULT_RENDER_FPS,
     RENDER_MODE_HUMAN,
     TYRE_START_TEMPERATURE,
     CAR_MASS,
@@ -146,7 +147,11 @@ class CarEnv(BaseEnv):
         self.renderer = None
         self.headless_clock = None  # Clock for timing in headless mode
         
-        if self.render_mode == RENDER_MODE_HUMAN:
+        # Force headless mode when enable_fps_limit=False
+        if not enable_fps_limit:
+            render_mode = None
+            
+        if render_mode == RENDER_MODE_HUMAN:
             self.renderer = Renderer(
                 window_size=DEFAULT_WINDOW_SIZE,
                 render_fps=self.metadata["render_fps"],
@@ -163,12 +168,10 @@ class CarEnv(BaseEnv):
             
         # Environment state
         self.simulation_time = 0.0
-        self.physics_dt = BOX2D_TIME_STEP
+        self.actual_dt = BOX2D_TIME_STEP  # Will be updated with each physics step
         
-        # Frame rate independence: absolute timing approach
-        self.physics_start_time = None  # Wall clock time when physics started
-        self.next_physics_time = 0.0    # Next absolute time to run physics step
-        self._current_physics_action = None  # Store latest action for physics updates
+        # Store latest action for physics updates
+        self._current_physics_action = None
         
         # Performance tracking
         self.episode_stats = {}
@@ -269,9 +272,7 @@ class CarEnv(BaseEnv):
         
         self.simulation_time = 0.0
         
-        # Reset frame rate independence timing
-        self.physics_start_time = None
-        self.next_physics_time = 0.0
+        # Reset physics action tracking
         self._current_physics_action = None
         
         # Reset input tracking
@@ -341,8 +342,11 @@ class CarEnv(BaseEnv):
         
     def update_physics(self, actions) -> None:
         """
-        Update physics simulation with frame rate independence using absolute timing.
-        Physics runs at exactly 60Hz regardless of how often this function is called.
+        Update physics simulation with proper timing modes.
+        
+        Two modes:
+        1. enable_fps_limit=True: One physics step per frame, simulating delta time from frame rate
+        2. enable_fps_limit=False: Run physics as fast as possible with fixed 1/60 timesteps
         
         Args:
             actions: For single car: [throttle, brake, steering] for followed car
@@ -353,14 +357,6 @@ class CarEnv(BaseEnv):
             
         # Store the latest action(s)
         self._current_physics_action = actions
-        
-        # Get current wall clock time
-        current_wall_time = time.time()
-        
-        # Initialize physics timing on first call
-        if self.physics_start_time is None:
-            self.physics_start_time = current_wall_time
-            self.next_physics_time = current_wall_time  # Set to current time to ensure immediate first step
         
         # Prepare actions for physics step
         if self.num_cars == 1:
@@ -382,60 +378,69 @@ class CarEnv(BaseEnv):
             else:
                 # Assume it's already a list/array of actions for each car
                 physics_actions = actions
+
+        # Check if fps limit is enabled
+        enable_fps_limit = getattr(self, 'headless_enable_fps_limit', True)
+        if self.renderer:
+            enable_fps_limit = self.renderer.enable_fps_limit
         
-        # Run physics steps at fixed intervals, catching up if necessary
-        physics_steps_taken = 0
-        max_physics_steps = 10  # Prevent too many catchup steps
+        if enable_fps_limit:
+            # MODE 1: enable_fps_limit=True
+            # One physics step per frame, using the expected frame rate as timestep
+            # This ensures consistent physics regardless of actual frame rate variations
+            
+            # Get target fps for this environment
+            target_fps = self.metadata.get("render_fps", DEFAULT_RENDER_FPS)
+            expected_dt = 1.0 / target_fps
+            
+            # Run exactly one physics step with expected delta time
+            self._run_single_physics_step(physics_actions, expected_dt)
+            
+        else:
+            # MODE 2: enable_fps_limit=False  
+            # Run physics as fast as possible with fixed 1/60 timesteps
+            
+            # Always use fixed timestep for consistent simulation speed
+            fixed_dt = 1.0/60.0
+            
+            # Run exactly one physics step with fixed timestep
+            self._run_single_physics_step(physics_actions, fixed_dt)
+
+    def _run_single_physics_step(self, physics_actions, dt):
+        """Run a single physics step with the given timestep"""
         
-        # Frame rate independence - run physics at proper 60Hz rate
-        # Add small buffer to account for timing precision issues
-        physics_time_buffer = self.physics_dt * 0.8  # Allow physics to run slightly ahead of schedule
+        # Store the actual timestep used (for reward calculations)
+        self.actual_dt = dt
         
-        # FIXED: Always run physics at least once per step() call for RL environments
-        # This ensures deterministic behavior regardless of wall clock timing
-        should_run_physics = (current_wall_time >= (self.next_physics_time - physics_time_buffer)) or (physics_steps_taken == 0)
+        # Update collision reporter time
+        self.collision_reporter.update_time(self.simulation_time)
         
-        while should_run_physics and physics_steps_taken < max_physics_steps:
-            # Update collision reporter time
-            self.collision_reporter.update_time(self.simulation_time)
-            
-            # Process collision events from car physics
-            self._process_physics_collisions()
-            
-            # Perform physics step with fixed timestep
-            self.car_physics.step(physics_actions, self.physics_dt)
-            
-            # Update simulation time (this should match real elapsed time)
-            self.simulation_time += self.physics_dt
-            
-            # Schedule next physics update
-            self.next_physics_time += self.physics_dt
-            physics_steps_taken += 1
-            
-            # Update condition for next iteration - only continue if timing allows and we haven't run at least once
-            should_run_physics = (current_wall_time >= (self.next_physics_time - physics_time_buffer))
+        # Process collision events from car physics
+        self._process_physics_collisions()
         
-        # Update lap timers for all cars (only if physics was updated)
-        if physics_steps_taken > 0:
-            for car_index in range(len(self.cars)):
-                if car_index < len(self.car_lap_timers):
-                    car_state = self.car_physics.get_car_state(car_index)
-                    if car_state:
-                        car_position = (car_state[0], car_state[1])  # x, y position
+        # Perform physics step with given timestep
+        self.car_physics.step(physics_actions, dt)
+        
+        # Update simulation time
+        self.simulation_time += dt
+        
+        # Update lap timers for all cars
+        for car_index in range(len(self.cars)):
+            if car_index < len(self.car_lap_timers):
+                car_state = self.car_physics.get_car_state(car_index)
+                if car_state:
+                    car_position = (car_state[0], car_state[1])  # x, y position
+                    
+                    # Update this car's lap timer with simulation time
+                    lap_timer = self.car_lap_timers[car_index]
+                    lap_completed = lap_timer.update(car_position, self.simulation_time)
+                    
+                    if lap_completed:
+                        logger.info(f"Car {car_index} lap completed! Time: {lap_timer.format_time(lap_timer.get_last_lap_time())}")
                         
-                        # Update this car's lap timer
-                        lap_timer = self.car_lap_timers[car_index]
-                        lap_completed = lap_timer.update(car_position)
-                        
-                        if lap_completed:
-                            logger.info(f"Car {car_index} lap completed! Time: {lap_timer.format_time(lap_timer.get_last_lap_time())}")
-                            
-                            # Mark reset as pending if reset_on_lap is enabled and this is the followed car
-                            if self.reset_on_lap and car_index == self.followed_car_index:
-                                self._lap_reset_pending = True
-            
-            # Legacy lap timer update removed to prevent camera switching issues
-            # Each car now uses its own independent lap timer in self.car_lap_timers[]
+                        # Mark reset as pending if reset_on_lap is enabled and this is the followed car
+                        if self.reset_on_lap and car_index == self.followed_car_index:
+                            self._lap_reset_pending = True
         
     def step(self, action):
         """
@@ -687,13 +692,13 @@ class CarEnv(BaseEnv):
                 car = self.cars[car_index]
                 reward = 0.0
                 
-                # Speed reward
+                # Speed reward - time-based
                 speed = car.get_velocity_magnitude()
-                reward += speed * REWARD_SPEED_MULTIPLIER
+                reward += speed * REWARD_SPEED_MULTIPLIER * self.actual_dt
                 
                 # Penalty for being too slow
                 if speed < PENALTY_LOW_SPEED_THRESHOLD:
-                    reward -= PENALTY_LOW_SPEED_RATE * self.physics_dt
+                    reward -= PENALTY_LOW_SPEED_RATE * self.actual_dt
                 
                 # Distance reward (track per car if needed)
                 car_state = self.car_physics.get_car_state(car_index)
@@ -736,13 +741,13 @@ class CarEnv(BaseEnv):
                     # Mark this collision as penalized
                     setattr(self, last_collision_attr, self.simulation_time)
                 
-                # Off-track penalty
+                # Off-track penalty - time-based
                 if not self.car_physics.is_car_on_track(car_index):
-                    reward -= PENALTY_OFF_TRACK
+                    reward -= PENALTY_OFF_TRACK * self.actual_dt
                 
-                # High speed bonus
+                # High speed bonus - time-based  
                 if speed > REWARD_HIGH_SPEED_THRESHOLD:
-                    reward += REWARD_HIGH_SPEED_BONUS
+                    reward += REWARD_HIGH_SPEED_BONUS * self.actual_dt
                 
                 # Lap completion bonus
                 if car_index < len(self.car_lap_timers):
@@ -1023,15 +1028,15 @@ class CarEnv(BaseEnv):
         # Base reward for staying alive (penalty to encourage action)
         reward -= 0.0
         
-        # Speed reward (encourage forward progress)
+        # Speed reward (encourage forward progress) - time-based
         speed = followed_car.get_velocity_magnitude()
-        reward += speed * REWARD_SPEED_MULTIPLIER  # Small bonus for speed
+        reward += speed * REWARD_SPEED_MULTIPLIER * self.actual_dt  # Reward per second of speed
         
         # NEW: Penalty for being too slow
         # Penalty per second when speed is less than threshold
         if speed < PENALTY_LOW_SPEED_THRESHOLD:
             # Apply penalty scaled by physics timestep (1/60 second)
-            reward -= PENALTY_LOW_SPEED_RATE * self.physics_dt
+            reward -= PENALTY_LOW_SPEED_RATE * self.actual_dt
         
         # NEW: Reward for distance traveled (+0.1 per meter)
         if self._previous_car_position is not None:
@@ -1067,13 +1072,13 @@ class CarEnv(BaseEnv):
             # Mark this collision as penalized to avoid double penalties
             self._last_penalized_collision_time = recent_collision.timestamp
             
-        # Penalty for going off track (for followed car)
+        # Penalty for going off track (for followed car) - time-based
         if not self.car_physics.is_car_on_track(self.followed_car_index):
-            reward -= PENALTY_OFF_TRACK
+            reward -= PENALTY_OFF_TRACK * self.actual_dt  # Penalty per second off track
             
-        # Performance bonus
+        # Performance bonus - time-based
         if speed > REWARD_HIGH_SPEED_THRESHOLD:
-            reward += REWARD_HIGH_SPEED_BONUS
+            reward += REWARD_HIGH_SPEED_BONUS * self.actual_dt  # Bonus per second at high speed
         
         # Lap completion bonus - major reward for completing laps (for followed car)
         followed_lap_timer = self.car_lap_timers[self.followed_car_index] if self.followed_car_index < len(self.car_lap_timers) else self.lap_timer
@@ -1168,15 +1173,15 @@ class CarEnv(BaseEnv):
         self.episode_stats["max_speed"] = max(self.episode_stats["max_speed"], speed)
         
         # Simple distance approximation
-        self.episode_stats["distance_traveled"] += speed * self.physics_dt
+        self.episode_stats["distance_traveled"] += speed * self.actual_dt
         
         # Count collisions
-        if self.collision_reporter.has_recent_collision(self.physics_dt):
+        if self.collision_reporter.has_recent_collision(self.actual_dt):
             self.episode_stats["collisions"] += 1
             
         # Track time on track
         if self.car_physics.is_car_on_track(self.followed_car_index):
-            self.episode_stats["time_on_track"] += self.physics_dt
+            self.episode_stats["time_on_track"] += self.actual_dt
             
     def _get_info(self) -> Dict[str, Any]:
         """Get environment info dictionary (for followed car)"""

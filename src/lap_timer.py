@@ -72,24 +72,33 @@ class LapTimer:
                 self.startline_segment = segment
                 break
     
-    def start_timing(self) -> None:
+    def start_timing(self, simulation_time: float = None) -> None:
         """Start timing a new lap"""
-        self.current_lap_start_time = time.time()
+        if simulation_time is not None:
+            self.current_lap_start_time = simulation_time
+        else:
+            # Fallback to wall-clock time for backward compatibility
+            self.current_lap_start_time = time.time()
         self.current_lap_time = 0.0
     
-    def update(self, car_position: Optional[Tuple[float, float]] = None) -> bool:
+    def update(self, car_position: Optional[Tuple[float, float]] = None, simulation_time: float = None) -> bool:
         """
         Update lap timer for one time step.
         
         Args:
             car_position: Current car position (x, y) for lap detection
+            simulation_time: Current simulation time (use instead of wall-clock time)
             
         Returns:
             True if a lap was completed this update, False otherwise
         """
         # Update current lap time if timing is active
         if self.current_lap_start_time is not None:
-            self.current_lap_time = time.time() - self.current_lap_start_time
+            if simulation_time is not None:
+                self.current_lap_time = simulation_time - self.current_lap_start_time
+            else:
+                # Fallback to wall-clock time for backward compatibility
+                self.current_lap_time = time.time() - self.current_lap_start_time
         
         # Update distance traveled if we have position data
         if car_position and self.last_car_position:
@@ -98,7 +107,7 @@ class LapTimer:
         # Check for lap completion if we have position and track data
         lap_completed = False
         if car_position and self.startline_segment:
-            lap_completed = self._check_lap_completion(car_position)
+            lap_completed = self._check_lap_completion(car_position, simulation_time)
         
         # Store position for next update
         self.last_car_position = car_position
@@ -121,12 +130,13 @@ class LapTimer:
             if distance < 50.0:  # Maximum realistic distance per update (at 60fps, this is ~3000 m/s max speed)
                 self.total_distance_traveled += distance
     
-    def _check_lap_completion(self, car_position: Tuple[float, float]) -> bool:
+    def _check_lap_completion(self, car_position: Tuple[float, float], simulation_time: float = None) -> bool:
         """
         Check if car has completed a lap by crossing the startline.
         
         Args:
             car_position: Current car position (x, y)
+            simulation_time: Current simulation time
             
         Returns:
             True if lap was completed, False otherwise
@@ -170,12 +180,12 @@ class LapTimer:
                     return False
                 
                 # Complete the current lap
-                self._complete_lap()
+                self._complete_lap(simulation_time)
                 return True
             elif not self.has_crossed_startline:
                 # First crossing - start timing
                 self.has_crossed_startline = True
-                self.start_timing()
+                self.start_timing(simulation_time)
                 # Reset distance tracking for new lap
                 self.total_distance_traveled = 0.0
         
@@ -220,7 +230,7 @@ class LapTimer:
         # Car is on startline if within half track width of the centerline
         return dist_to_line <= (width / 2.0)
     
-    def _complete_lap(self) -> None:
+    def _complete_lap(self, simulation_time: float = None) -> None:
         """Complete the current lap and update timing records"""
         if self.current_lap_start_time is None:
             return
@@ -236,11 +246,14 @@ class LapTimer:
         # Increment lap count
         self.lap_count += 1
         
-        # Record completion time for cooldown
-        self.last_lap_completion_time = time.time()
+        # Record completion time for cooldown (use simulation time if available)
+        if simulation_time is not None:
+            self.last_lap_completion_time = simulation_time
+        else:
+            self.last_lap_completion_time = time.time()
         
         # Start timing the next lap
-        self.start_timing()
+        self.start_timing(simulation_time)
         
         # Reset distance tracking for next lap
         self.total_distance_traveled = 0.0
