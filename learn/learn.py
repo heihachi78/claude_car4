@@ -106,8 +106,8 @@ def make_env(rank):
         return Monitor(env, filename=os.path.join(log_dir, f"monitor_{rank}.csv"))
     return _init
 
-# Vectorized environment with 8 parallel envs
-env = DummyVecEnv([make_env for _ in range(8)])
+# Create 8 environments
+env = DummyVecEnv([make_env(i) for i in range(8)])
 
 # Action noise needs shape according to number of actions in a single env
 n_actions = env.action_space.shape[-1]
