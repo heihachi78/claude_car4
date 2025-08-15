@@ -59,7 +59,20 @@ from .constants import (
     LAP_TIMER_LAST_COLOR,
     LAP_TIMER_BEST_COLOR,
     LAP_TIMER_BG_COLOR,
-    LAP_TIMER_BG_ALPHA
+    LAP_TIMER_BG_ALPHA,
+    # Race Tables Constants
+    RACE_TABLES_FONT_SIZE,
+    RACE_TABLES_WIDTH,
+    RACE_TABLES_HEIGHT,
+    RACE_TABLES_PADDING,
+    RACE_TABLES_SPACING,
+    RACE_TABLES_LINE_HEIGHT,
+    RACE_TABLES_BG_COLOR,
+    RACE_TABLES_BG_ALPHA,
+    RACE_TABLES_TEXT_COLOR,
+    RACE_TABLES_HEADER_COLOR,
+    RACE_TABLES_POSITION_COLOR,
+    RACE_TABLES_LAP_TIME_COLOR
 )
 from .track_generator import Track
 from .camera import Camera
@@ -236,7 +249,7 @@ class Renderer:
             pygame.font.init()
             self._initialized_pygame = True
             
-    def render_frame(self, car_position=None, car_angle=None, debug_data=None, current_action=None, lap_timing_info=None, reward_info=None, cars_data=None, followed_car_index=0):
+    def render_frame(self, car_position=None, car_angle=None, debug_data=None, current_action=None, lap_timing_info=None, reward_info=None, cars_data=None, followed_car_index=0, race_positions_data=None, best_lap_times_data=None):
         self.init_pygame()
         
         if self.window is None:
@@ -300,6 +313,10 @@ class Renderer:
         # Render reward if info is available
         if reward_info is not None and reward_info.get('show', False):
             self._render_reward(reward_info)
+        
+        # Render race tables if data is available
+        if race_positions_data is not None or best_lap_times_data is not None:
+            self._render_race_tables(race_positions_data, best_lap_times_data)
         
         # Calculate FPS - use pygame clock when FPS limited, manual calculation when uncapped
         if self.enable_fps_limit:
@@ -941,6 +958,141 @@ class Renderer:
             text_rect.y = line_y
             
             self.window.blit(text_surface, text_rect)
+    
+    def _render_race_tables(self, race_positions_data, best_lap_times_data):
+        """Render race position and best lap times tables in the center of the screen
+        
+        Args:
+            race_positions_data: List of tuples (car_index, car_name, total_progress, completed_laps) sorted by position
+            best_lap_times_data: List of tuples (car_index, car_name, best_time) sorted by time
+        """
+        if not self.window:
+            return
+        
+        # Create race tables font
+        try:
+            tables_font = pygame.font.Font(None, RACE_TABLES_FONT_SIZE)
+        except pygame.error:
+            # Fallback to main font if tables font fails
+            if not self.font:
+                return
+            tables_font = self.font
+        
+        # Calculate center position for both tables
+        screen_center_x = self.window_size[0] // 2
+        screen_center_y = self.window_size[1] // 2
+        
+        # Calculate table positions (left and right of center)
+        left_table_x = screen_center_x - RACE_TABLES_WIDTH - RACE_TABLES_SPACING // 2
+        right_table_x = screen_center_x + RACE_TABLES_SPACING // 2
+        table_y = screen_center_y - RACE_TABLES_HEIGHT // 2
+        
+        # Render positions table (left)
+        if race_positions_data:
+            self._render_positions_table(tables_font, left_table_x, table_y, race_positions_data)
+        
+        # Render best lap times table (right)  
+        if best_lap_times_data:
+            self._render_lap_times_table(tables_font, right_table_x, table_y, best_lap_times_data)
+    
+    def _render_positions_table(self, font, x, y, race_positions_data):
+        """Render the race positions table (left table)"""
+        # Draw background
+        bg_surface = pygame.Surface((RACE_TABLES_WIDTH, RACE_TABLES_HEIGHT))
+        bg_surface.set_alpha(RACE_TABLES_BG_ALPHA)
+        bg_surface.fill(RACE_TABLES_BG_COLOR)
+        self.window.blit(bg_surface, (x, y))
+        
+        # Draw header
+        header_text = "POSITIONS"
+        header_surface = font.render(header_text, True, RACE_TABLES_HEADER_COLOR)
+        header_rect = header_surface.get_rect()
+        header_x = x + (RACE_TABLES_WIDTH - header_rect.width) // 2
+        header_y = y + RACE_TABLES_PADDING
+        self.window.blit(header_surface, (header_x, header_y))
+        
+        # Draw position entries
+        current_y = header_y + RACE_TABLES_LINE_HEIGHT + RACE_TABLES_PADDING
+        
+        for position, position_data in enumerate(race_positions_data, 1):
+            if current_y + RACE_TABLES_LINE_HEIGHT > y + RACE_TABLES_HEIGHT - RACE_TABLES_PADDING:
+                break  # Don't draw outside table bounds
+            
+            # Handle both old format (3 items) and new format (4 items) for backward compatibility
+            if len(position_data) >= 4:
+                car_index, car_name, total_progress, completed_laps = position_data[:4]
+                # Format: "1st CarName (L2)" where L2 means 2 laps completed
+                position_suffix = self._get_position_suffix(position)
+                if completed_laps > 0:
+                    position_text = f"{position}{position_suffix} {car_name} (L{completed_laps})"
+                else:
+                    position_text = f"{position}{position_suffix} {car_name}"
+            else:
+                # Legacy format: (car_index, car_name, progress)
+                car_index, car_name, progress = position_data
+                position_suffix = self._get_position_suffix(position)
+                position_text = f"{position}{position_suffix} {car_name}"
+            
+            # Truncate if too long
+            if len(position_text) > 18:  # Adjust based on table width
+                truncated_name = car_name[:8] + "..."
+                if len(position_data) >= 4 and completed_laps > 0:
+                    position_text = f"{position}{position_suffix} {truncated_name} (L{completed_laps})"
+                else:
+                    position_text = f"{position}{position_suffix} {truncated_name}"
+            
+            text_surface = font.render(position_text, True, RACE_TABLES_POSITION_COLOR)
+            text_x = x + RACE_TABLES_PADDING
+            self.window.blit(text_surface, (text_x, current_y))
+            
+            current_y += RACE_TABLES_LINE_HEIGHT
+    
+    def _render_lap_times_table(self, font, x, y, best_lap_times_data):
+        """Render the best lap times table (right table)"""
+        # Draw background
+        bg_surface = pygame.Surface((RACE_TABLES_WIDTH, RACE_TABLES_HEIGHT))
+        bg_surface.set_alpha(RACE_TABLES_BG_ALPHA)
+        bg_surface.fill(RACE_TABLES_BG_COLOR)
+        self.window.blit(bg_surface, (x, y))
+        
+        # Draw header
+        header_text = "BEST LAP TIMES"
+        header_surface = font.render(header_text, True, RACE_TABLES_HEADER_COLOR)
+        header_rect = header_surface.get_rect()
+        header_x = x + (RACE_TABLES_WIDTH - header_rect.width) // 2
+        header_y = y + RACE_TABLES_PADDING
+        self.window.blit(header_surface, (header_x, header_y))
+        
+        # Draw lap time entries
+        current_y = header_y + RACE_TABLES_LINE_HEIGHT + RACE_TABLES_PADDING
+        
+        for car_index, car_name, best_time in best_lap_times_data:
+            if current_y + RACE_TABLES_LINE_HEIGHT > y + RACE_TABLES_HEIGHT - RACE_TABLES_PADDING:
+                break  # Don't draw outside table bounds
+            
+            # Format lap time using LapTimer format
+            from .lap_timer import LapTimer
+            formatted_time = LapTimer.format_time(best_time)
+            
+            # Format: "CarName MM:SS.mmm"
+            # Truncate car name if necessary to fit time
+            max_name_length = 8  # Adjust based on table width
+            display_name = car_name[:max_name_length] + "..." if len(car_name) > max_name_length else car_name
+            time_text = f"{display_name:<{max_name_length}} {formatted_time}"
+            
+            text_surface = font.render(time_text, True, RACE_TABLES_LAP_TIME_COLOR)
+            text_x = x + RACE_TABLES_PADDING
+            self.window.blit(text_surface, (text_x, current_y))
+            
+            current_y += RACE_TABLES_LINE_HEIGHT
+    
+    def _get_position_suffix(self, position):
+        """Get ordinal suffix for position (1st, 2nd, 3rd, 4th, etc.)"""
+        if 10 <= position % 100 <= 20:  # Special case for 11th, 12th, 13th
+            return "th"
+        else:
+            suffix_map = {1: "st", 2: "nd", 3: "rd"}
+            return suffix_map.get(position % 10, "th")
     
     def _render_reward(self, reward_info):
         """Render reward information in the bottom right corner of the screen

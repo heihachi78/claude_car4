@@ -6,6 +6,7 @@ realistic physics, track integration, and comprehensive observation space.
 """
 
 import logging
+import math
 import numpy as np
 import pygame
 import time
@@ -1311,6 +1312,10 @@ class CarEnv(BaseEnv):
             elif hasattr(self, 'current_action'):
                 followed_car_action = self.current_action
             
+            # Calculate race data for tables display
+            race_positions_data = self._calculate_race_positions()
+            best_lap_times_data = self._get_best_lap_times_data()
+            
             self.renderer.render_frame(
                 car_position=followed_car_position, 
                 car_angle=followed_car_angle, 
@@ -1319,7 +1324,9 @@ class CarEnv(BaseEnv):
                 lap_timing_info=lap_timing_info,
                 reward_info=reward_info,
                 cars_data=cars_data,
-                followed_car_index=self.followed_car_index
+                followed_car_index=self.followed_car_index,
+                race_positions_data=race_positions_data,
+                best_lap_times_data=best_lap_times_data
             )
             
     def get_track(self):
@@ -1339,6 +1346,145 @@ class CarEnv(BaseEnv):
             self.car_physics.cleanup()
             
         logger.info("CarEnv closed")
+    
+    def _calculate_race_positions(self) -> list:
+        """
+        Calculate current race positions based on completed laps and track progress.
+        
+        Returns:
+            List of tuples (car_index, car_name, total_progress, completed_laps) sorted by race position (1st, 2nd, etc.)
+        """
+        if not self.cars or not self.track or not self.track.segments:
+            return []
+        
+        car_positions = []
+        track_length = self.track.get_total_track_length()
+        
+        for car_index, car in enumerate(self.cars):
+            if not car or car_index in self.disabled_cars:
+                continue
+                
+            car_state = self.car_physics.get_car_state(car_index)
+            if not car_state:
+                continue
+                
+            car_pos = (car_state[0], car_state[1])  # x, y position
+            car_name = self.car_names[car_index] if car_index < len(self.car_names) else f"Car {car_index}"
+            
+            # Get completed laps for this car
+            completed_laps = 0
+            if car_index < len(self.car_lap_timers):
+                completed_laps = self.car_lap_timers[car_index].get_lap_count()
+            
+            # Calculate current track progress (distance along track from start)
+            current_progress = self._calculate_track_progress(car_pos)
+            
+            # Total progress = (completed_laps * track_length) + current_progress
+            # This ensures cars with more completed laps always rank higher
+            total_progress = completed_laps * track_length + current_progress
+            
+            car_positions.append((car_index, car_name, total_progress, completed_laps))
+        
+        # Sort by total progress (highest total progress = leading position)
+        car_positions.sort(key=lambda x: x[2], reverse=True)
+        
+        return car_positions
+    
+    def _calculate_track_progress(self, car_position: Tuple[float, float]) -> float:
+        """
+        Calculate how far along the track a car is (distance from start).
+        
+        Args:
+            car_position: Car position (x, y) in world coordinates
+            
+        Returns:
+            Distance traveled along track from start in meters
+        """
+        if not self.track or not self.track.segments:
+            return 0.0
+        
+        car_x, car_y = car_position
+        min_distance = float('inf')
+        closest_segment_index = 0
+        closest_point_on_segment = (0.0, 0.0)
+        
+        # Find closest point on any track segment
+        for i, segment in enumerate(self.track.segments):
+            # Calculate closest point on this segment
+            start_x, start_y = segment.start_position
+            end_x, end_y = segment.end_position
+            
+            # Vector from start to end of segment
+            dx = end_x - start_x
+            dy = end_y - start_y
+            segment_length_sq = dx * dx + dy * dy
+            
+            if segment_length_sq < 1e-6:  # Very short segment
+                closest_x, closest_y = start_x, start_y
+                t = 0.0
+            else:
+                # Project car position onto line segment
+                t = max(0, min(1, ((car_x - start_x) * dx + (car_y - start_y) * dy) / segment_length_sq))
+                closest_x = start_x + t * dx
+                closest_y = start_y + t * dy
+            
+            # Calculate distance from car to this closest point
+            dist_sq = (car_x - closest_x) ** 2 + (car_y - closest_y) ** 2
+            
+            if dist_sq < min_distance:
+                min_distance = dist_sq
+                closest_segment_index = i
+                closest_point_on_segment = (closest_x, closest_y)
+        
+        # Calculate total distance from start to closest point
+        total_progress = 0.0
+        
+        # Add lengths of all complete segments before the closest one
+        for i in range(closest_segment_index):
+            segment = self.track.segments[i]
+            segment_length = math.sqrt(
+                (segment.end_position[0] - segment.start_position[0]) ** 2 +
+                (segment.end_position[1] - segment.start_position[1]) ** 2
+            )
+            total_progress += segment_length
+        
+        # Add partial distance within the closest segment
+        if closest_segment_index < len(self.track.segments):
+            closest_segment = self.track.segments[closest_segment_index]
+            partial_distance = math.sqrt(
+                (closest_point_on_segment[0] - closest_segment.start_position[0]) ** 2 +
+                (closest_point_on_segment[1] - closest_segment.start_position[1]) ** 2
+            )
+            total_progress += partial_distance
+        
+        return total_progress
+    
+    def _get_best_lap_times_data(self) -> list:
+        """
+        Get best lap times for all cars sorted by fastest time.
+        
+        Returns:
+            List of tuples (car_index, car_name, best_lap_time) sorted by fastest time
+        """
+        if not self.car_lap_timers:
+            return []
+        
+        lap_times_data = []
+        
+        for car_index, lap_timer in enumerate(self.car_lap_timers):
+            if car_index in self.disabled_cars:
+                continue
+                
+            car_name = self.car_names[car_index] if car_index < len(self.car_names) else f"Car {car_index}"
+            best_time = lap_timer.get_best_lap_time()
+            
+            if best_time is not None:
+                lap_times_data.append((car_index, car_name, best_time))
+        
+        # Sort by best lap time (fastest first)
+        lap_times_data.sort(key=lambda x: x[2])
+        
+        return lap_times_data
         
     def get_debug_info(self) -> str:
         """Get debug information string"""

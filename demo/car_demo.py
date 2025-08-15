@@ -9,14 +9,14 @@ import os
 import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.car_env import CarEnv
-
+import time as ptime
 
 
 def main():
     print("=" * 50)
     
     # Multi-car demo configuration with custom names
-    num_cars = 5  # Change this to test different numbers of cars (1-10)
+    num_cars = 10  # Change this to test different numbers of cars (1-10)
     car_names = [
         "Lightning",
         "Thunder",
@@ -105,7 +105,7 @@ def main():
                 current_speed = car_obs[4]  # Speed from observation
                 
                 # Use working control logic from previous version
-                speed_limit = ((forward * 475) - (car_idx*2))  / 3.6
+                speed_limit = ((forward * 500) - (car_idx*2.5))  / 3.6
 
                 if current_speed * 200 < speed_limit: 
                     car_throttles[car_idx] += 0.1
@@ -273,6 +273,8 @@ def main():
                         print(f"   💥 Max collision impulse: {collision_stats['max_impulse']:.0f}")
                 
                 # Reset for next episode
+                if num_cars > 1:
+                    ptime.sleep(60)
                 obs, info = env.reset()
                 total_reward = 0.0
                 

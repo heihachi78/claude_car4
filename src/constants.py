@@ -15,7 +15,7 @@ COLLISION_MASK_TRACK_WALLS = 0xFFFF       # Track walls collide with everything
 COLLISION_MASK_CARS = 0x0001              # Cars only collide with track walls (not other cars)
 
 # Rendering Constants
-DEFAULT_RENDER_FPS = 120
+DEFAULT_RENDER_FPS = 60
 DEFAULT_WINDOW_WIDTH = 1024
 DEFAULT_WINDOW_HEIGHT = 768
 DEFAULT_WINDOW_SIZE = (DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT)
@@ -49,6 +49,22 @@ STEERING_BAR_COLOR = (0, 100, 200)  # Blue for steering
 STEERING_BAR_BG_COLOR = (50, 50, 100)  # Dark blue background
 ACTION_BAR_BORDER_COLOR = (255, 255, 255)  # White borders
 ACTION_BAR_TEXT_COLOR = (255, 255, 255)  # White text
+
+# Race Tables UI Constants
+RACE_TABLES_FONT_SIZE = 20  # Font size for race tables
+RACE_TABLES_WIDTH = 200  # Width of each table in pixels
+RACE_TABLES_HEIGHT = 300  # Height of each table in pixels
+RACE_TABLES_PADDING = 10  # Padding inside tables in pixels
+RACE_TABLES_SPACING = 20  # Space between left and right tables in pixels
+RACE_TABLES_LINE_HEIGHT = 22  # Height per text line in pixels
+
+# Race Tables Colors (RGB)
+RACE_TABLES_BG_COLOR = (0, 0, 0)  # Black background
+RACE_TABLES_BG_ALPHA = 180  # Semi-transparent background
+RACE_TABLES_TEXT_COLOR = (255, 255, 255)  # White text
+RACE_TABLES_HEADER_COLOR = (255, 255, 0)  # Yellow headers
+RACE_TABLES_POSITION_COLOR = (100, 255, 100)  # Green for positions
+RACE_TABLES_LAP_TIME_COLOR = (255, 200, 100)  # Orange for lap times
 
 # Track Constants
 DEFAULT_TRACK_WIDTH = 20.0  # meters
