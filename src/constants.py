@@ -294,7 +294,7 @@ TYRE_HIGH_SPEED_COOLING_REDUCTION = 0.5  # cooling reduction factor at high spee
 TYRE_MIN_COOLING_SPEED_THRESHOLD = 50.0  # m/s - speed above which cooling is reduced
 TYRE_AERODYNAMIC_HEATING_FACTOR = 0.0002  # additional heating from aerodynamic friction (reduced)
 AMBIENT_TEMPERATURE = 25.0  # °C ambient air temperature
-TYRE_THERMAL_MASS = 100.0  # thermal mass factor for temperature changes
+TYRE_THERMAL_MASS = 125.0  # thermal mass factor for temperature changes
 
 # Tyre Pressure Constants
 TYRE_OPTIMAL_PRESSURE_PSI = 32.0  # PSI (pounds per square inch)

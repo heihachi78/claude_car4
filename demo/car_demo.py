@@ -17,7 +17,18 @@ def main():
     
     # Multi-car demo configuration with custom names
     num_cars = 5  # Change this to test different numbers of cars (1-10)
-    car_names = ["Lightning", "Thunder", "Blaze", "Storm", "Phoenix"][:num_cars]
+    car_names = [
+        "Lightning",
+        "Thunder",
+        "Blaze",
+        "Storm",
+        "Phoenix",
+        "Cyclone",
+        "Tornado",
+        "Inferno",
+        "Viper",
+        "Shadow"
+    ][:num_cars]
     
     print(f"🚗 MULTI-CAR RACING DEMO - {num_cars} Named Cars")
     print("=" * 50)
@@ -29,6 +40,9 @@ def main():
     print(f"🎮 CONTROLS:")
     print(f"   Keys 0-{min(num_cars-1, 9)}: Switch camera between cars")
     print(f"   R: Toggle reward display")
+    print(f"   D: Toggle debug display")
+    print(f"   I: Toggle track info display")
+    print(f"   C: Change camera")
     print(f"   ESC: Exit")
     print(f"📺 Following {car_names[0]} - Press 0-{min(num_cars-1, 9)} to switch cars")
     
@@ -42,6 +56,10 @@ def main():
     best_lap_time = {}  # Best lap time per car
     total_laps = {}     # Total laps per car
     previous_lap_count = {}  # Previous lap count per car
+    
+    # Overall best lap tracking (across all cars)
+    overall_best_lap_time = None
+    overall_best_lap_car = None
     
     # Initialize tracking for all cars
     for i in range(num_cars):
@@ -87,7 +105,7 @@ def main():
                 current_speed = car_obs[4]  # Speed from observation
                 
                 # Use working control logic from previous version
-                speed_limit = forward * 475 - (car_idx*2)  / 3.6
+                speed_limit = ((forward * 475) - (car_idx*2))  / 3.6
 
                 if current_speed * 200 < speed_limit: 
                     car_throttles[car_idx] += 0.1
@@ -130,47 +148,108 @@ def main():
             else:
                 total_reward += reward
 
-            # Handle multi-car info
+            # Handle multi-car info and check lap completions for ALL cars
             if isinstance(info, list):
-                # Multi-car info: get followed car's info
+                # Multi-car info: get followed car's info for camera tracking
                 followed_car_info = info[current_followed_car] if current_followed_car < len(info) else info[0]
                 current_followed_car = followed_car_info.get('followed_car_index', current_followed_car)
-                lap_timing = followed_car_info.get('lap_timing', {})
+                
+                # Check lap completions for ALL cars
+                for car_idx in range(min(num_cars, len(info))):
+                    car_info = info[car_idx]
+                    lap_timing = car_info.get('lap_timing', {})
+                    current_lap_count = lap_timing.get('lap_count', 0)
+                    car_name = car_names[car_idx] if car_idx < len(car_names) else f"Car {car_idx}"
+                    
+                    # Check if this car completed a lap
+                    if current_lap_count > previous_lap_count[car_idx]:
+                        # Lap completed for this car!
+                        last_lap_time = lap_timing.get('last_lap_time', None)
+                        if last_lap_time:
+                            all_lap_times[car_idx].append(last_lap_time)
+                            total_laps[car_idx] += 1
+                            
+                            # Format lap time for display
+                            minutes = int(last_lap_time // 60)
+                            seconds = last_lap_time % 60
+                            lap_time_str = f"{minutes}:{seconds:06.3f}"
+                            
+                            # Update best lap for this car
+                            if best_lap_time[car_idx] is None or last_lap_time < best_lap_time[car_idx]:
+                                best_lap_time[car_idx] = last_lap_time
+                                print(f"🏁 {car_name} NEW BEST LAP! Time: {lap_time_str}")
+                                if total_laps[car_idx] > 1:
+                                    car_times = all_lap_times[car_idx]
+                                    improvement = (car_times[-2] if len(car_times) > 1 else last_lap_time) - last_lap_time
+                                    print(f"   ⚡ Improved by {improvement:.3f} seconds!")
+                            else:
+                                print(f"🏁 {car_name} Lap {total_laps[car_idx]} completed: {lap_time_str}")
+                                if best_lap_time[car_idx]:
+                                    gap = last_lap_time - best_lap_time[car_idx]
+                                    print(f"   📊 Gap to best: +{gap:.3f}s")
+                            
+                            # Check and update overall best lap across all cars
+                            if overall_best_lap_time is None or last_lap_time < overall_best_lap_time:
+                                # New overall best lap!
+                                overall_best_lap_time = last_lap_time
+                                overall_best_lap_car = car_idx
+                                overall_best_car_name = car_names[car_idx] if car_idx < len(car_names) else f"Car {car_idx}"
+                                print(f"   🌟 NEW OVERALL BEST LAP! {overall_best_car_name} set the pace: {lap_time_str}")
+                            else:
+                                # Show gap to overall best
+                                gap_to_overall = last_lap_time - overall_best_lap_time
+                                overall_best_car_name = car_names[overall_best_lap_car] if overall_best_lap_car < len(car_names) else f"Car {overall_best_lap_car}"
+                                print(f"   🏆 Gap to overall best ({overall_best_car_name}): +{gap_to_overall:.3f}s")
+                            
+                        previous_lap_count[car_idx] = current_lap_count
             else:
                 # Single car info
                 current_followed_car = info.get('followed_car_index', 0)
                 lap_timing = info.get('lap_timing', {})
-            current_lap_count = lap_timing.get('lap_count', 0)
-            current_car_name = car_names[current_followed_car] if current_followed_car < len(car_names) else f"Car {current_followed_car}"
-            
-            # Check if followed car completed a lap
-            if current_lap_count > previous_lap_count[current_followed_car]:
-                # Lap completed for followed car!
-                last_lap_time = lap_timing.get('last_lap_time', None)
-                if last_lap_time:
-                    all_lap_times[current_followed_car].append(last_lap_time)
-                    total_laps[current_followed_car] += 1
-                    
-                    # Format lap time for display
-                    minutes = int(last_lap_time // 60)
-                    seconds = last_lap_time % 60
-                    lap_time_str = f"{minutes}:{seconds:06.3f}"
-                    
-                    # Update best lap for this car
-                    if best_lap_time[current_followed_car] is None or last_lap_time < best_lap_time[current_followed_car]:
-                        best_lap_time[current_followed_car] = last_lap_time
-                        print(f"🏁 {current_car_name} NEW BEST LAP! Time: {lap_time_str}")
-                        if total_laps[current_followed_car] > 1:
-                            car_times = all_lap_times[current_followed_car]
-                            improvement = (car_times[-2] if len(car_times) > 1 else last_lap_time) - last_lap_time
-                            print(f"   ⚡ Improved by {improvement:.3f} seconds!")
-                    else:
-                        print(f"🏁 {current_car_name} Lap {total_laps[current_followed_car]} completed: {lap_time_str}")
-                        if best_lap_time[current_followed_car]:
-                            gap = last_lap_time - best_lap_time[current_followed_car]
-                            print(f"   📊 Gap to best: +{gap:.3f}s")
-                    
-                previous_lap_count[current_followed_car] = current_lap_count
+                current_lap_count = lap_timing.get('lap_count', 0)
+                current_car_name = car_names[current_followed_car] if current_followed_car < len(car_names) else f"Car {current_followed_car}"
+                
+                # Check if followed car completed a lap (single car mode)
+                if current_lap_count > previous_lap_count[current_followed_car]:
+                    # Lap completed for followed car!
+                    last_lap_time = lap_timing.get('last_lap_time', None)
+                    if last_lap_time:
+                        all_lap_times[current_followed_car].append(last_lap_time)
+                        total_laps[current_followed_car] += 1
+                        
+                        # Format lap time for display
+                        minutes = int(last_lap_time // 60)
+                        seconds = last_lap_time % 60
+                        lap_time_str = f"{minutes}:{seconds:06.3f}"
+                        
+                        # Update best lap for this car
+                        if best_lap_time[current_followed_car] is None or last_lap_time < best_lap_time[current_followed_car]:
+                            best_lap_time[current_followed_car] = last_lap_time
+                            print(f"🏁 {current_car_name} NEW BEST LAP! Time: {lap_time_str}")
+                            if total_laps[current_followed_car] > 1:
+                                car_times = all_lap_times[current_followed_car]
+                                improvement = (car_times[-2] if len(car_times) > 1 else last_lap_time) - last_lap_time
+                                print(f"   ⚡ Improved by {improvement:.3f} seconds!")
+                        else:
+                            print(f"🏁 {current_car_name} Lap {total_laps[current_followed_car]} completed: {lap_time_str}")
+                            if best_lap_time[current_followed_car]:
+                                gap = last_lap_time - best_lap_time[current_followed_car]
+                                print(f"   📊 Gap to best: +{gap:.3f}s")
+                        
+                        # Check and update overall best lap across all cars (single car mode)
+                        if overall_best_lap_time is None or last_lap_time < overall_best_lap_time:
+                            # New overall best lap!
+                            overall_best_lap_time = last_lap_time
+                            overall_best_lap_car = current_followed_car
+                            overall_best_car_name = car_names[current_followed_car] if current_followed_car < len(car_names) else f"Car {current_followed_car}"
+                            print(f"   🌟 NEW OVERALL BEST LAP! {overall_best_car_name} set the pace: {lap_time_str}")
+                        else:
+                            # Show gap to overall best
+                            gap_to_overall = last_lap_time - overall_best_lap_time
+                            overall_best_car_name = car_names[overall_best_lap_car] if overall_best_lap_car < len(car_names) else f"Car {overall_best_lap_car}"
+                            print(f"   🏆 Gap to overall best ({overall_best_car_name}): +{gap_to_overall:.3f}s")
+                        
+                    previous_lap_count[current_followed_car] = current_lap_count
 
             env.render()
 
@@ -205,6 +284,10 @@ def main():
                 # Reset previous lap count tracking for all cars
                 for i in range(num_cars):
                     previous_lap_count[i] = 0
+                
+                # Reset overall best lap tracking
+                overall_best_lap_time = None
+                overall_best_lap_car = None
                     
                 print(f"   🔄 Environment reset, continuing simulation...")
         

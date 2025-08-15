@@ -12,19 +12,22 @@ import time
 import math
 from typing import Optional, Tuple
 from .track_generator import Track
+from .constants import LAP_DETECTION_POSITION_TOLERANCE
 
 
 class LapTimer:
     """Manages lap timing and lap completion detection"""
     
-    def __init__(self, track: Optional[Track] = None):
+    def __init__(self, track: Optional[Track] = None, car_id: str = "Unknown"):
         """
         Initialize lap timer.
         
         Args:
             track: Track instance for lap detection, can be None for time-only mode
+            car_id: Identifier for the car (for debug messages)
         """
         self.track = track
+        self.car_id = car_id
         
         # Timing state
         self.current_lap_start_time = None
@@ -37,6 +40,23 @@ class LapTimer:
         self.last_car_position = None
         self.lap_count = 0
         self.startline_segment = None
+        
+        # Lap validation constants
+        self.minimum_lap_time = 10.0  # Minimum realistic lap time in seconds
+        self.minimum_lap_distance_percent = 0.95  # Require 95% of track length
+        self.minimum_lap_distance = 100.0  # Fallback minimum distance if track length unavailable
+        self.total_distance_traveled = 0.0  # Track total distance for validation
+        
+        # Lap completion cooldown to prevent rapid re-triggering
+        self.lap_completion_cooldown = 2.0  # Seconds to wait after completing a lap
+        self.last_lap_completion_time = None  # Time when last lap was completed
+        
+        # Calculate dynamic minimum distance based on track length
+        if self.track:
+            track_length = self.track.get_total_track_length()
+            if track_length > 0:
+                self.minimum_lap_distance = track_length * self.minimum_lap_distance_percent
+                print(f"LapTimer: Track length {track_length:.1f}m, minimum lap distance: {self.minimum_lap_distance:.1f}m ({self.minimum_lap_distance_percent*100:.0f}%)")
         
         # Find startline segment if track is provided
         if self.track:
@@ -71,6 +91,10 @@ class LapTimer:
         if self.current_lap_start_time is not None:
             self.current_lap_time = time.time() - self.current_lap_start_time
         
+        # Update distance traveled if we have position data
+        if car_position and self.last_car_position:
+            self._update_distance_traveled(car_position)
+        
         # Check for lap completion if we have position and track data
         lap_completed = False
         if car_position and self.startline_segment:
@@ -80,6 +104,22 @@ class LapTimer:
         self.last_car_position = car_position
         
         return lap_completed
+    
+    def _update_distance_traveled(self, current_position: Tuple[float, float]) -> None:
+        """
+        Update the total distance traveled by the car.
+        
+        Args:
+            current_position: Current car position (x, y)
+        """
+        if self.last_car_position:
+            dx = current_position[0] - self.last_car_position[0]
+            dy = current_position[1] - self.last_car_position[1]
+            distance = math.sqrt(dx * dx + dy * dy)
+            
+            # Only add realistic distance increments (prevents teleportation from inflating distance)
+            if distance < 50.0:  # Maximum realistic distance per update (at 60fps, this is ~3000 m/s max speed)
+                self.total_distance_traveled += distance
     
     def _check_lap_completion(self, car_position: Tuple[float, float]) -> bool:
         """
@@ -102,9 +142,33 @@ class LapTimer:
         # 1. Car crosses into startline area (crossed_now and not crossed_before)
         # 2. Car has already crossed startline at least once (to avoid counting start as lap)
         # 3. We're currently timing a lap
+        # 4. Sufficient time has passed for a realistic lap (minimum time validation)
+        # 5. Sufficient distance has been traveled (minimum distance validation)
         
         if crossed_now and not crossed_before:
             if self.has_crossed_startline and self.current_lap_start_time is not None:
+                # Check cooldown period to prevent rapid re-triggering
+                current_time = time.time()
+                if self.last_lap_completion_time is not None:
+                    time_since_last_lap = current_time - self.last_lap_completion_time
+                    if time_since_last_lap < self.lap_completion_cooldown:
+                        # Still in cooldown period, ignore this crossing
+                        return False
+                
+                # Validate minimum lap time
+                if self.current_lap_time < self.minimum_lap_time:
+                    print(f"⚠️  {self.car_id} Lap completion rejected: time too short ({self.current_lap_time:.3f}s < {self.minimum_lap_time}s)")
+                    return False
+                
+                # Validate minimum distance traveled
+                if self.total_distance_traveled < self.minimum_lap_distance:
+                    percent_completed = (self.total_distance_traveled / self.minimum_lap_distance) * self.minimum_lap_distance_percent * 100
+                    print(f"⚠️  {self.car_id} Lap completion rejected: distance too short")
+                    print(f"     Distance traveled: {self.total_distance_traveled:.1f}m")
+                    print(f"     Required distance: {self.minimum_lap_distance:.1f}m ({self.minimum_lap_distance_percent*100:.0f}% of track)")
+                    print(f"     Track completion: {percent_completed:.1f}%")
+                    return False
+                
                 # Complete the current lap
                 self._complete_lap()
                 return True
@@ -112,6 +176,8 @@ class LapTimer:
                 # First crossing - start timing
                 self.has_crossed_startline = True
                 self.start_timing()
+                # Reset distance tracking for new lap
+                self.total_distance_traveled = 0.0
         
         return False
     
@@ -170,8 +236,14 @@ class LapTimer:
         # Increment lap count
         self.lap_count += 1
         
+        # Record completion time for cooldown
+        self.last_lap_completion_time = time.time()
+        
         # Start timing the next lap
         self.start_timing()
+        
+        # Reset distance tracking for next lap
+        self.total_distance_traveled = 0.0
     
     def reset(self) -> None:
         """Reset lap timer to initial state"""
@@ -182,6 +254,8 @@ class LapTimer:
         self.has_crossed_startline = False
         self.last_car_position = None
         self.lap_count = 0
+        self.total_distance_traveled = 0.0
+        self.last_lap_completion_time = None
     
     def get_current_lap_time(self) -> float:
         """Get current lap time in seconds"""
@@ -244,6 +318,7 @@ class LapTimer:
             "lap_count": self.lap_count,
             "is_timing": self.is_timing(),
             "has_crossed_startline": self.has_crossed_startline,
+            "total_distance_traveled": self.total_distance_traveled,
             "formatted_current": self.format_time(self.current_lap_time if self.is_timing() else None),
             "formatted_last": self.format_time(self.last_lap_time),
             "formatted_best": self.format_time(self.best_lap_time)

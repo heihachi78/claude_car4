@@ -201,11 +201,12 @@ class CarEnv(BaseEnv):
         """Initialize lap timers for all cars"""
         self.car_lap_timers = []
         for i in range(self.num_cars):
-            lap_timer = LapTimer(self.track)
+            car_name = self.car_names[i] if i < len(self.car_names) else f"Car {i}"
+            lap_timer = LapTimer(self.track, car_id=car_name)
             self.car_lap_timers.append(lap_timer)
         
         # Set main lap timer to first car's timer for backward compatibility
-        self.lap_timer = self.car_lap_timers[0] if self.car_lap_timers else LapTimer(self.track)
+        self.lap_timer = self.car_lap_timers[0] if self.car_lap_timers else LapTimer(self.track, car_id="Legacy Car")
         
     def _load_track(self, track_file: str) -> None:
         """Load track from file"""
@@ -423,12 +424,8 @@ class CarEnv(BaseEnv):
                             if self.reset_on_lap and car_index == self.followed_car_index:
                                 self._lap_reset_pending = True
             
-            # Also update legacy lap timer for backward compatibility (followed car)
-            if self.followed_car_index < len(self.cars):
-                car_state = self.car_physics.get_car_state(self.followed_car_index)
-                if car_state:
-                    car_position = (car_state[0], car_state[1])
-                    self.lap_timer.update(car_position)
+            # Legacy lap timer update removed to prevent camera switching issues
+            # Each car now uses its own independent lap timer in self.car_lap_timers[]
         
     def step(self, action):
         """
