@@ -736,7 +736,7 @@ class CarEnv(BaseEnv):
                 
                 # Speed reward - time-based
                 speed = car.get_velocity_magnitude()
-                reward += speed * REWARD_SPEED_MULTIPLIER * self.actual_dt
+                reward += speed**2 * REWARD_SPEED_MULTIPLIER * self.actual_dt
                 
                 # Penalty for being too slow
                 if speed < PENALTY_LOW_SPEED_THRESHOLD:
@@ -1091,7 +1091,7 @@ class CarEnv(BaseEnv):
         
         # Speed reward (encourage forward progress) - time-based
         speed = followed_car.get_velocity_magnitude()
-        reward += speed * REWARD_SPEED_MULTIPLIER * self.actual_dt  # Reward per second of speed
+        reward += speed**2 * REWARD_SPEED_MULTIPLIER * self.actual_dt  # Reward per second of speed
         
         # NEW: Penalty for being too slow
         # Penalty per second when speed is less than threshold
@@ -1491,18 +1491,31 @@ class CarEnv(BaseEnv):
             
             # Get completed laps for this car
             completed_laps = 0
+            lap_timer = None
             if car_index < len(self.car_lap_timers):
-                completed_laps = self.car_lap_timers[car_index].get_lap_count()
+                lap_timer = self.car_lap_timers[car_index]
+                completed_laps = lap_timer.get_lap_count()
             
             # Calculate current track progress (distance along track from start)
             current_progress = self._calculate_track_progress(car_pos)
             
-            # Total progress = (completed_laps * track_length) + current_progress
-            # Keep this for backward compatibility but we'll sort differently
-            total_progress = completed_laps * track_length + current_progress
+            # Virtual lap increment for position calculation: if car is near start line 
+            # but has traveled significant distance, they likely just crossed finish
+            virtual_laps = completed_laps
+            if (lap_timer and 
+                lap_timer.is_timing() and 
+                lap_timer.has_crossed_startline and
+                current_progress < (track_length * 0.15) and  # Within 15% of start
+                lap_timer.total_distance_traveled > (track_length * 0.8)):  # Traveled 80%+ of track
+                # Car likely just crossed finish line but validation pending
+                virtual_laps = completed_laps + 1
             
-            # Store both lap count and current progress for proper sorting
-            car_positions.append((car_index, car_name, total_progress, completed_laps, current_progress))
+            # Total progress = (virtual_laps * track_length) + current_progress
+            # Use virtual_laps for sorting to handle finish line crossings
+            total_progress = virtual_laps * track_length + current_progress
+            
+            # Store virtual lap count and current progress for proper sorting
+            car_positions.append((car_index, car_name, total_progress, virtual_laps, current_progress))
         
         # Sort by completed laps first (descending), then by current progress (descending)
         # This ensures cars with more laps always rank higher, and among cars on the same lap,

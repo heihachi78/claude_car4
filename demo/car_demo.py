@@ -16,7 +16,7 @@ def main():
     print("=" * 50)
     
     # Multi-car demo configuration with custom names
-    num_cars = 10  # Change this to test different numbers of cars (1-10)
+    num_cars = 1  # Change this to test different numbers of cars (1-10)
     car_names = [
         "Lightning",
         "Thunder",
@@ -38,7 +38,7 @@ def main():
                  num_cars=num_cars, 
                  reset_on_lap=False, 
                  render_mode="human",
-                 enable_fps_limit=True,
+                 enable_fps_limit=False,
                  car_names=car_names)
     
     print(f"🎮 CONTROLS:")
@@ -117,7 +117,7 @@ def main():
                 current_speed = car_obs[4]  # Speed from observation
                 
                 # Use working control logic from previous version
-                speed_limit = ((forward * 525) - (car_idx*5))  / 3.6
+                speed_limit = ((forward * 450) - (car_idx*5))  / 3.6
 
                 if current_speed * 200 < speed_limit: 
                     car_throttles[car_idx] += 0.1
@@ -138,7 +138,7 @@ def main():
                     car_steerings[car_idx] = 0
 
                 # Apply limits and adjustments
-                if car_idx != 5:
+                if car_idx != 11:
                     car_brakes[car_idx] = max(min(car_brakes[car_idx], 1), 0)
                     car_steerings[car_idx] = max(min(car_steerings[car_idx], 1), -1)
                     if abs(car_steerings[car_idx]) > 0.1:

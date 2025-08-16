@@ -614,7 +614,7 @@ TWO_PI = 2 * math.pi  # Full circle in radians
 # =============================================================================
 
 # Positive Rewards
-REWARD_SPEED_MULTIPLIER = 0.08  # Bonus per m/s of speed
+REWARD_SPEED_MULTIPLIER = 0.004  # Bonus per m/s of speed
 REWARD_DISTANCE_MULTIPLIER = 0.1  # Bonus per meter traveled
 REWARD_HIGH_SPEED_THRESHOLD = 83.0  # Speed threshold (m/s) for performance bonus (~300 km/h)
 REWARD_HIGH_SPEED_BONUS = 1.0  # Bonus when exceeding high speed threshold

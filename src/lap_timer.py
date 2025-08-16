@@ -243,9 +243,6 @@ class LapTimer:
         if self.best_lap_time is None or completed_time < self.best_lap_time:
             self.best_lap_time = completed_time
         
-        # Increment lap count
-        self.lap_count += 1
-        
         # Record completion time for cooldown (use simulation time if available)
         if simulation_time is not None:
             self.last_lap_completion_time = simulation_time
@@ -255,8 +252,10 @@ class LapTimer:
         # Start timing the next lap
         self.start_timing(simulation_time)
         
-        # Reset distance tracking for next lap
+        # Increment lap count and reset distance tracking for next lap (consecutive operations)
+        self.lap_count += 1
         self.total_distance_traveled = 0.0
+    
     
     def reset(self) -> None:
         """Reset lap timer to initial state"""
