@@ -359,8 +359,7 @@ class CarPhysics:
         if not self.cars:
             raise ValueError("No cars created. Call create_cars() or create_car() first.")
             
-        # Update simulation time
-        self.simulation_time += dt
+        # Note: simulation_time is updated in car_env.py to avoid double increment
         
         # Handle both single action and multi-action formats
         if isinstance(actions, (list, tuple)) and len(actions) == 3 and isinstance(actions[0], (int, float)):

@@ -117,7 +117,7 @@ def main():
                 current_speed = car_obs[4]  # Speed from observation
                 
                 # Use working control logic from previous version
-                speed_limit = ((forward * 500) - (car_idx*2.5))  / 3.6
+                speed_limit = ((forward * 525) - (car_idx*5))  / 3.6
 
                 if current_speed * 200 < speed_limit: 
                     car_throttles[car_idx] += 0.1

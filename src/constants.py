@@ -15,7 +15,7 @@ COLLISION_MASK_TRACK_WALLS = 0xFFFF       # Track walls collide with everything
 COLLISION_MASK_CARS = 0x0001              # Cars only collide with track walls (not other cars)
 
 # Rendering Constants
-DEFAULT_RENDER_FPS = 120
+DEFAULT_RENDER_FPS = 60
 UNLIMITED_FPS_CAP = 240  # FPS cap to use when enable_fps_limit=False (prevents physics timing issues)
 DEFAULT_WINDOW_WIDTH = 1024
 DEFAULT_WINDOW_HEIGHT = 768
@@ -289,7 +289,7 @@ TYRE_GRIP_FALLOFF_RATE = 0.02  # grip reduction per degree outside ideal range
 
 # Tyre Wear Constants
 TYRE_MAX_WEAR = 100.0  # maximum wear percentage (100% = completely worn)
-TYRE_IDEAL_WEAR_RATE = 0.006  # wear rate per second at ideal temperature (increased 6x for realistic racing wear)
+TYRE_IDEAL_WEAR_RATE = 0.012  # wear rate per second at ideal temperature (increased 6x for realistic racing wear)
 TYRE_EXCESSIVE_WEAR_MULTIPLIER = 2.5  # wear multiplier when outside ideal temperature
 TYRE_GRIP_WEAR_FACTOR = 0.5  # grip reduction factor when tyre is worn
 
@@ -567,9 +567,9 @@ AERODYNAMIC_DRAG_FACTOR = 0.5  # Aerodynamic drag equation factor (½ in ½ρCdA
 
 # Slip Angle Detection and Heating
 SLIP_ANGLE_THRESHOLD_DEGREES = 5.0  # Degrees - minimum slip angle to consider for heating
-SLIP_ANGLE_HEATING_BASE_MULTIPLIER = 2.0  # Base heating multiplier for slip angle
-SLIP_ANGLE_HEATING_EXPONENTIAL_FACTOR = 0.02  # Exponential factor for slip angle heating (per degree)
-SLIP_ANGLE_MAX_HEATING_MULTIPLIER = 5.0  # Maximum heating multiplier from slip angle
+SLIP_ANGLE_HEATING_BASE_MULTIPLIER = 2.2  # Base heating multiplier for slip angle
+SLIP_ANGLE_HEATING_EXPONENTIAL_FACTOR = 0.04  # Exponential factor for slip angle heating (per degree)
+SLIP_ANGLE_MAX_HEATING_MULTIPLIER = 8.0  # Maximum heating multiplier from slip angle
 SLIP_ANGLE_SPEED_THRESHOLD = 2.0  # m/s - minimum speed for slip angle heating
 
 # Lateral Force Heating Constants
@@ -614,24 +614,24 @@ TWO_PI = 2 * math.pi  # Full circle in radians
 # =============================================================================
 
 # Positive Rewards
-REWARD_SPEED_MULTIPLIER = 0.01  # Bonus per m/s of speed
-REWARD_DISTANCE_MULTIPLIER = 0.01  # Bonus per meter traveled
-REWARD_HIGH_SPEED_THRESHOLD = 25.0  # Speed threshold (m/s) for performance bonus (~90 km/h)
+REWARD_SPEED_MULTIPLIER = 0.08  # Bonus per m/s of speed
+REWARD_DISTANCE_MULTIPLIER = 0.1  # Bonus per meter traveled
+REWARD_HIGH_SPEED_THRESHOLD = 83.0  # Speed threshold (m/s) for performance bonus (~300 km/h)
 REWARD_HIGH_SPEED_BONUS = 1.0  # Bonus when exceeding high speed threshold
-REWARD_LAP_COMPLETION = 150.0  # Bonus per completed lap
+REWARD_LAP_COMPLETION = 50.0  # Bonus per completed lap
 REWARD_FAST_LAP_TIME = 40.0  # Time threshold (seconds) for fast lap bonus
-REWARD_FAST_LAP_BONUS = 150.0  # Bonus for completing lap under threshold time
-REWARD_FORWARD_SENSOR_MULTIPLIER = 0.001  # Bonus per normalized forward sensor distance
+REWARD_FAST_LAP_BONUS = 50.0  # Bonus for completing lap under threshold time
+REWARD_FORWARD_SENSOR_MULTIPLIER = 5  # Bonus per normalized forward sensor distance
 
 # Negative Rewards (Penalties)
 PENALTY_LOW_SPEED_THRESHOLD = 0.278  # Speed threshold (m/s) for low speed penalty (1 km/h)
 PENALTY_LOW_SPEED_RATE = 0.001  # Penalty per second when below low speed threshold
 # Scaled collision penalties based on severity
-PENALTY_COLLISION_MINOR = 1.0  # Light scrape penalty
-PENALTY_COLLISION_MODERATE = 2.5  # Moderate hit penalty
-PENALTY_COLLISION_SEVERE = 5.0  # Severe crash penalty
-PENALTY_COLLISION_CRITICAL = 10.0  # Critical crash penalty
-PENALTY_COLLISION_EXTREME = 500.0  # Extreme crash penalty (immediate disabling)
+PENALTY_COLLISION_MINOR = 25  # Light scrape penalty
+PENALTY_COLLISION_MODERATE = 50  # Moderate hit penalty
+PENALTY_COLLISION_SEVERE = 125  # Severe crash penalty
+PENALTY_COLLISION_CRITICAL = 250.0  # Critical crash penalty
+PENALTY_COLLISION_EXTREME = 1000.0  # Extreme crash penalty (immediate disabling)
 
 # =============================================================================
 # TERMINATION CONDITION CONSTANTS
