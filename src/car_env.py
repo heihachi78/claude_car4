@@ -40,14 +40,19 @@ from .constants import (
     REWARD_LAP_COMPLETION,
     REWARD_FAST_LAP_TIME,
     REWARD_FAST_LAP_BONUS,
+    REWARD_FORWARD_SENSOR_MULTIPLIER,
     PENALTY_LOW_SPEED_THRESHOLD,
     PENALTY_LOW_SPEED_RATE,
-    PENALTY_COLLISION,
     PENALTY_COLLISION_MINOR,
     PENALTY_COLLISION_MODERATE,
     PENALTY_COLLISION_SEVERE,
     PENALTY_COLLISION_CRITICAL,
-    PENALTY_OFF_TRACK,
+    PENALTY_COLLISION_EXTREME,
+    # Collision severity constants
+    COLLISION_SEVERITY_MINOR,
+    COLLISION_SEVERITY_MODERATE,
+    COLLISION_SEVERITY_SEVERE,
+    COLLISION_SEVERITY_EXTREME,
     # Termination constants
     TERMINATION_MIN_REWARD,
     TERMINATION_MAX_TIME,
@@ -560,6 +565,9 @@ class CarEnv(BaseEnv):
         # Check for new collisions and disable cars if necessary
         self._check_and_disable_cars()
         
+        # Update physics system with disabled cars info (to suppress collision messages)
+        self.car_physics.set_disabled_cars(self.disabled_cars)
+        
         # Get observations, rewards, and info for all cars
         observations = self._get_multi_obs()
         rewards = self._calculate_multi_rewards()
@@ -578,20 +586,50 @@ class CarEnv(BaseEnv):
         return observations, rewards, terminated, truncated, infos
     
     def _check_and_disable_cars(self):
-        """Check for severe collisions and disable cars in multi-car mode"""
+        """Check for sustained severe collisions and disable cars in multi-car mode"""
         if self.num_cars <= 1:
             return  # Only apply in multi-car mode
+        
+        # Track cars disabled in this timestep for final penalty application
+        if not hasattr(self, '_just_disabled_cars'):
+            self._just_disabled_cars = set()
+        else:
+            self._just_disabled_cars.clear()
             
         for car_idx in range(self.num_cars):
             if car_idx in self.disabled_cars:
                 continue  # Car is already disabled
                 
-            # Check collision impulse for this car
-            collision_impulse, _ = self.car_physics.get_collision_data(car_idx)
-            if collision_impulse > 1000:  # Critical collision threshold
-                self.disabled_cars.add(car_idx)
-                car_name = self.car_names[car_idx] if car_idx < len(self.car_names) else f"Car {car_idx}"
-                print(f"🚫 {car_name} disabled due to critical collision (impulse: {collision_impulse:.0f})")
+            # Check collision impulse for this car using continuous collision data
+            collision_impulse = self.car_physics.get_continuous_collision_impulse(car_idx)
+            
+            # Initialize collision duration tracking if needed
+            collision_duration_attr = f'_collision_duration_{car_idx}'
+            if not hasattr(self, collision_duration_attr):
+                setattr(self, collision_duration_attr, 0.0)
+            
+            if collision_impulse > COLLISION_SEVERITY_EXTREME:
+                # Immediate disabling for extreme collisions (>5000N)
+                if car_idx not in self.disabled_cars:
+                    self.disabled_cars.add(car_idx)
+                    self._just_disabled_cars.add(car_idx)  # Track for final penalty
+                    car_name = self.car_names[car_idx] if car_idx < len(self.car_names) else f"Car {car_idx}"
+                    print(f"🚫 {car_name} IMMEDIATELY DISABLED due to extreme collision (impulse: {collision_impulse:.0f}N)")
+            elif collision_impulse > COLLISION_SEVERITY_SEVERE:
+                # Accumulate collision duration for severe/critical collisions
+                current_duration = getattr(self, collision_duration_attr)
+                current_duration += self.actual_dt
+                setattr(self, collision_duration_attr, current_duration)
+                
+                # Disable after sustained severe collision (reduced from 2.0s to 0.8s)
+                if current_duration > 0.8:
+                    self.disabled_cars.add(car_idx)
+                    self._just_disabled_cars.add(car_idx)  # Track for final penalty
+                    car_name = self.car_names[car_idx] if car_idx < len(self.car_names) else f"Car {car_idx}"
+                    print(f"🚫 {car_name} disabled due to sustained severe collision (impulse: {collision_impulse:.0f}N, duration: {current_duration:.1f}s)")
+            else:
+                # Reset collision duration when not colliding severely
+                setattr(self, collision_duration_attr, 0.0)
     
     def _get_multi_obs(self):
         """Get observations for all cars"""
@@ -685,8 +723,11 @@ class CarEnv(BaseEnv):
         
         for car_index in range(self.num_cars):
             if car_index < len(self.cars) and self.cars[car_index]:
-                # Disabled cars get zero reward
-                if car_index in self.disabled_cars:
+                # Calculate reward even for disabled cars (to apply final collision penalty)
+                # but only for the timestep they were disabled
+                car_just_disabled = hasattr(self, '_just_disabled_cars') and car_index in getattr(self, '_just_disabled_cars', set())
+                
+                if car_index in self.disabled_cars and not car_just_disabled:
                     rewards.append(0.0)
                     continue
                     
@@ -719,36 +760,51 @@ class CarEnv(BaseEnv):
                     # Update previous position for this car
                     setattr(self, f'_previous_car_position_{car_index}', current_position)
                 
-                # Collision penalty - only penalize NEW collisions once
-                # Track last penalized collision time per car
-                last_collision_attr = f'_last_penalized_collision_time_{car_index}'
-                last_collision_time = getattr(self, last_collision_attr, -float('inf'))
+                # CONTINUOUS collision penalty - applied every timestep while colliding
+                # Get current collision impulse from physics system
+                collision_impulse = self.car_physics.get_continuous_collision_impulse(car_index)
                 
-                # Get recent collision for this specific car
-                collision_impulse, collision_angle = self.car_physics.get_collision_data(car_index)
-                
-                # Check if this is a NEW collision (not already penalized)
-                # We consider it new if enough time has passed since last penalty
-                if collision_impulse > 0 and self.simulation_time > last_collision_time + 0.5:
-                    if collision_impulse < 100:
-                        reward -= PENALTY_COLLISION_MINOR
-                    elif collision_impulse < 500:
-                        reward -= PENALTY_COLLISION_MODERATE
-                    elif collision_impulse < 1000:
-                        reward -= PENALTY_COLLISION_SEVERE
+                if collision_impulse > 0:
+                    # Determine severity based on impulse magnitude
+                    if collision_impulse < COLLISION_SEVERITY_MINOR:
+                        collision_penalty = PENALTY_COLLISION_MINOR
+                    elif collision_impulse < COLLISION_SEVERITY_MODERATE:
+                        collision_penalty = PENALTY_COLLISION_MODERATE
+                    elif collision_impulse < COLLISION_SEVERITY_SEVERE:
+                        collision_penalty = PENALTY_COLLISION_SEVERE
+                    elif collision_impulse < COLLISION_SEVERITY_EXTREME:
+                        collision_penalty = PENALTY_COLLISION_CRITICAL
                     else:
-                        reward -= PENALTY_COLLISION_CRITICAL
+                        collision_penalty = PENALTY_COLLISION_EXTREME
                     
-                    # Mark this collision as penalized
-                    setattr(self, last_collision_attr, self.simulation_time)
+                    # For extreme collisions that cause immediate disabling, apply full penalty
+                    # For other collisions, apply penalty per second
+                    if collision_impulse >= COLLISION_SEVERITY_EXTREME and car_just_disabled:
+                        penalty_applied = collision_penalty  # Full penalty for car destruction
+                        #print(f"💰 EXTREME PENALTY: car={car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.1f} (FULL DESTRUCTION PENALTY)")
+                    else:
+                        penalty_applied = collision_penalty * self.actual_dt  # Normal per-second penalty
+                        #print(f"💰 REWARD PENALTY: car={car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.3f} (rate={collision_penalty:.1f}/s)")
+                    
+                    reward -= penalty_applied
                 
-                # Off-track penalty - time-based
-                if not self.car_physics.is_car_on_track(car_index):
-                    reward -= PENALTY_OFF_TRACK * self.actual_dt
                 
                 # High speed bonus - time-based  
                 if speed > REWARD_HIGH_SPEED_THRESHOLD:
                     reward += REWARD_HIGH_SPEED_BONUS * self.actual_dt
+                
+                # Forward sensor reward - reward for having clear space ahead (time-based)
+                # Get sensor distances for this car
+                world = self.car_physics.world if self.car_physics else None
+                car_position = (car_state[0], car_state[1])
+                car_orientation = car_state[4] if len(car_state) > 4 else 0.0
+                sensor_distances = self.distance_sensor.get_sensor_distances(
+                    world, car_position, car_orientation
+                )
+                # Normalize forward sensor distance (index 0)
+                normalized_forward_distance = np.clip(sensor_distances[0] / SENSOR_MAX_DISTANCE, 0.0, 1.0)
+                # Apply reward per second of having forward space
+                reward += REWARD_FORWARD_SENSOR_MULTIPLIER * normalized_forward_distance * self.actual_dt
                 
                 # Lap completion bonus
                 if car_index < len(self.car_lap_timers):
@@ -793,13 +849,19 @@ class CarEnv(BaseEnv):
         if self.followed_car_index < len(self.cars) and self.cars[self.followed_car_index]:
             followed_car = self.cars[self.followed_car_index]
             
-            # Only check reward termination if followed car is not disabled
+            # Only check reward termination if followed car is not disabled 
             if self.followed_car_index not in self.disabled_cars:
                 # Check cumulative reward for followed car
                 if hasattr(self, '_cumulative_rewards') and self.followed_car_index < len(self._cumulative_rewards):
-                    if self._cumulative_rewards[self.followed_car_index] < TERMINATION_MIN_REWARD:
-                        self.termination_reason = f"low_reward_car_{self.followed_car_index}"
-                        return True, False
+                    followed_car_reward = self._cumulative_rewards[self.followed_car_index]
+                    if followed_car_reward < TERMINATION_MIN_REWARD:
+                        if self.reset_on_lap:
+                            # In training mode, terminate on low rewards
+                            self.termination_reason = f"low_reward_car_{self.followed_car_index}"
+                            return True, False
+                        else:
+                            # In demo mode, just log the event but don't terminate
+                            logger.debug(f"Low reward detected for car {self.followed_car_index} (cumulative: {followed_car_reward:.2f}) but demo mode active - not terminating")
                 
                 # Check if followed car is stuck (but don't terminate on collisions)
                 speed = followed_car.get_velocity_magnitude()
@@ -899,28 +961,26 @@ class CarEnv(BaseEnv):
         
     def _process_physics_collisions(self) -> None:
         """Process collision events from physics system"""
-        # Get collision data from car physics
-        collision_impulse, collision_angle = self.car_physics.get_collision_data()
+        # Get all collision data from physics system directly
+        recent_collisions = self.car_physics.recent_collisions
         
-        if collision_impulse > 0:
-            # Get car state for collision reporting
-            car_state = self.car_physics.get_car_state()
-            if car_state:
-                car_pos = (car_state[0], car_state[1])  # x, y position
-                car_angle = car_state[4]  # orientation
+        # Process each collision that hasn't been reported yet
+        for collision in recent_collisions:
+            if (hasattr(collision, 'car_id') and collision.car_id and 
+                hasattr(collision, 'reported_to_environment') and 
+                not collision.reported_to_environment):
                 
-                # Convert collision angle back to normal vector (simplified)
-                import math
-                normal_x = math.cos(collision_angle + car_angle)
-                normal_y = math.sin(collision_angle + car_angle)
-                
-                # Report collision
+                # Report collision with car identification
                 self.collision_reporter.report_collision(
-                    position=car_pos,
-                    impulse=collision_impulse,
-                    normal=(normal_x, normal_y),
-                    car_angle=car_angle
+                    position=collision.position,
+                    impulse=collision.impulse,
+                    normal=collision.normal,
+                    car_angle=0.0,  # We don't need car angle for this reporting
+                    car_id=collision.car_id
                 )
+                
+                # Mark as reported to avoid re-processing
+                collision.reported_to_environment = True
                 
     def _get_obs(self) -> np.ndarray:
         """Get current environment observation with normalized values (for followed car)"""
@@ -1057,29 +1117,47 @@ class CarEnv(BaseEnv):
                 self._total_distance_traveled += distance
                 self._previous_car_position = current_position
         
-        # Scaled penalty for collisions based on severity (only penalize once per collision)
-        recent_collision = self.collision_reporter.get_recent_collision(0.5)  # Check last 0.5 seconds
-        if recent_collision and recent_collision.timestamp > self._last_penalized_collision_time:
-            # Apply penalty based on collision severity (only for new collisions)
-            if recent_collision.severity == "minor":
-                reward -= PENALTY_COLLISION_MINOR
-            elif recent_collision.severity == "moderate":
-                reward -= PENALTY_COLLISION_MODERATE
-            elif recent_collision.severity == "severe":
-                reward -= PENALTY_COLLISION_SEVERE
-            elif recent_collision.severity == "critical":
-                reward -= PENALTY_COLLISION_CRITICAL
+        # CONTINUOUS collision penalty - applied every timestep while colliding
+        # Get current collision impulse from physics system
+        collision_impulse = self.car_physics.get_continuous_collision_impulse(self.followed_car_index)
+        
+        if collision_impulse > 0:
+            # Determine severity based on impulse magnitude
+            if collision_impulse < COLLISION_SEVERITY_MINOR:
+                collision_penalty = PENALTY_COLLISION_MINOR
+            elif collision_impulse < COLLISION_SEVERITY_MODERATE:
+                collision_penalty = PENALTY_COLLISION_MODERATE
+            elif collision_impulse < COLLISION_SEVERITY_SEVERE:
+                collision_penalty = PENALTY_COLLISION_SEVERE
+            elif collision_impulse < COLLISION_SEVERITY_EXTREME:
+                collision_penalty = PENALTY_COLLISION_CRITICAL
+            else:
+                collision_penalty = PENALTY_COLLISION_EXTREME
             
-            # Mark this collision as penalized to avoid double penalties
-            self._last_penalized_collision_time = recent_collision.timestamp
+            # For extreme collisions, apply full penalty (since this is single-car mode, car would terminate)
+            # For other collisions, apply penalty per second
+            if collision_impulse >= COLLISION_SEVERITY_EXTREME:
+                penalty_applied = collision_penalty  # Full penalty for extreme collision
+                print(f"💰 EXTREME PENALTY: car={self.followed_car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.1f} (FULL EXTREME PENALTY)")
+            else:
+                penalty_applied = collision_penalty * self.actual_dt  # Normal per-second penalty
+                print(f"💰 REWARD PENALTY: car={self.followed_car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.3f} (rate={collision_penalty:.1f}/s)")
             
-        # Penalty for going off track (for followed car) - time-based
-        if not self.car_physics.is_car_on_track(self.followed_car_index):
-            reward -= PENALTY_OFF_TRACK * self.actual_dt  # Penalty per second off track
+            reward -= penalty_applied
+            
             
         # Performance bonus - time-based
         if speed > REWARD_HIGH_SPEED_THRESHOLD:
             reward += REWARD_HIGH_SPEED_BONUS * self.actual_dt  # Bonus per second at high speed
+        
+        # Forward sensor reward - reward for having clear space ahead (time-based)
+        # Get normalized forward sensor distance from observation
+        observation = self._get_obs()
+        # Forward sensor is at index 22 (after 2 pos, 2 vel, 1 speed, 2 orient/angular, 
+        # 4 tyre loads, 4 tyre temps, 4 tyre wear, 2 collision = 21 values, then sensor 0)
+        forward_sensor_distance = observation[22]  # Already normalized to [0, 1]
+        # Apply reward per second of having forward space
+        reward += REWARD_FORWARD_SENSOR_MULTIPLIER * forward_sensor_distance * self.actual_dt
         
         # Lap completion bonus - major reward for completing laps (for followed car)
         followed_lap_timer = self.car_lap_timers[self.followed_car_index] if self.followed_car_index < len(self.car_lap_timers) else self.lap_timer
@@ -1115,10 +1193,15 @@ class CarEnv(BaseEnv):
             self.termination_reason = "no_followed_car"
             return True, False
             
-        # Terminate if cumulative reward goes below threshold
+        # Terminate if cumulative reward goes below threshold (only in training mode)
+        # In demo mode (reset_on_lap=False), don't terminate on low rewards
         if self._cumulative_reward < TERMINATION_MIN_REWARD:
-            terminated = True
-            self.termination_reason = f"low_reward (cumulative reward: {self._cumulative_reward:.2f})"
+            if self.reset_on_lap:
+                terminated = True
+                self.termination_reason = f"low_reward (cumulative reward: {self._cumulative_reward:.2f})"
+            else:
+                # In demo mode, just log the event but don't terminate
+                logger.debug(f"Low reward detected (cumulative: {self._cumulative_reward:.2f}) but demo mode active - not terminating")
             
         # Terminate on severe collision
         recent_collision = self.collision_reporter.get_recent_collision(TERMINATION_COLLISION_WINDOW)
@@ -1415,13 +1498,16 @@ class CarEnv(BaseEnv):
             current_progress = self._calculate_track_progress(car_pos)
             
             # Total progress = (completed_laps * track_length) + current_progress
-            # This ensures cars with more completed laps always rank higher
+            # Keep this for backward compatibility but we'll sort differently
             total_progress = completed_laps * track_length + current_progress
             
-            car_positions.append((car_index, car_name, total_progress, completed_laps))
+            # Store both lap count and current progress for proper sorting
+            car_positions.append((car_index, car_name, total_progress, completed_laps, current_progress))
         
-        # Sort by total progress (highest total progress = leading position)
-        car_positions.sort(key=lambda x: x[2], reverse=True)
+        # Sort by completed laps first (descending), then by current progress (descending)
+        # This ensures cars with more laps always rank higher, and among cars on the same lap,
+        # those further along rank higher
+        car_positions.sort(key=lambda x: (x[3], x[4]), reverse=True)
         
         return car_positions
     

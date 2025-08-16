@@ -33,11 +33,13 @@ from .constants import (
 class CollisionData:
     """Data structure for collision events"""
     
-    def __init__(self, position: Tuple[float, float], impulse: float, normal: Tuple[float, float]):
+    def __init__(self, position: Tuple[float, float], impulse: float, normal: Tuple[float, float], car_id: str = "unknown"):
         self.position = position  # World collision point
         self.impulse = impulse  # Collision impulse magnitude (mass * delta_velocity)
         self.normal = normal  # Collision normal vector
+        self.car_id = car_id  # Identifier of the car involved in collision
         self.timestamp = 0.0  # Will be set by collision system
+        self.reported_to_environment = False  # Flag to track if collision has been reported
 
 
 class CarPhysics:
@@ -55,6 +57,9 @@ class CarPhysics:
         
         # Track integration - walls created directly in our world
         self.track = track
+        
+        # Track disabled cars to suppress collision messages
+        self.disabled_cars = set()
         self.wall_bodies: List[Box2D.b2Body] = []
         if track:
             # Create track walls directly in our physics world
@@ -65,7 +70,7 @@ class CarPhysics:
         self.cars = []  # List of all cars in the simulation
         
         # Collision tracking
-        self.collision_listener = CarCollisionListener()
+        self.collision_listener = CarCollisionListener(self)
         self.world.contactListener = self.collision_listener
         self.recent_collisions: List[CollisionData] = []
         self.simulation_time = 0.0
@@ -91,7 +96,7 @@ class CarPhysics:
             # Remove existing car
             self.world.DestroyBody(self.car.body)
             
-        self.car = Car(self.world, start_position, start_angle)
+        self.car = Car(self.world, start_position, start_angle, "car_0")
         self.cars = [self.car]  # Update cars list for compatibility
         return self.car
     
@@ -124,13 +129,22 @@ class CarPhysics:
             offset_y = (i // 3) * 0.1     # Rows of 3 cars
             car_position = (start_position[0] + offset_x, start_position[1] + offset_y)
             
-            car = Car(self.world, car_position, start_angle)
+            car = Car(self.world, car_position, start_angle, f"car_{i}")
             self.cars.append(car)
         
         # Set first car as legacy reference
         self.car = self.cars[0] if self.cars else None
         
         return self.cars
+    
+    def set_disabled_cars(self, disabled_cars: set) -> None:
+        """
+        Update the set of disabled cars to suppress collision messages.
+        
+        Args:
+            disabled_cars: Set of car indices that are disabled
+        """
+        self.disabled_cars = disabled_cars.copy()
     
     def clear_cars(self) -> None:
         """
@@ -407,7 +421,8 @@ class CarPhysics:
         
     def get_collision_data(self, car_index: int = 0) -> Tuple[float, float]:
         """
-        Get collision data for environment observation.
+        Get current collision data for environment observation.
+        Now returns CURRENT collision state, not just recent history.
         
         Args:
             car_index: Index of the car (0-based)
@@ -415,34 +430,60 @@ class CarPhysics:
         Returns:
             Tuple of (collision_impulse, collision_angle_relative_to_car)
         """
-        if not self.recent_collisions or not self.cars or car_index < 0 or car_index >= len(self.cars):
+        if not self.cars or car_index < 0 or car_index >= len(self.cars):
             return (0.0, 0.0)
             
         car = self.cars[car_index]
         if not car:
             return (0.0, 0.0)
             
-        # Get the most recent significant collision
-        recent_collision = max(self.recent_collisions, key=lambda c: c.impulse)
+        # Get car ID for this index
+        car_id = f"car_{car_index}"
         
-        if recent_collision.impulse < 50.0:  # Minimum threshold for significant collision
+        # Get current collision impulse from listener
+        current_impulse = self.collision_listener.get_car_collision_impulse(car_id)
+        
+        if current_impulse < 50.0:  # Minimum threshold for significant collision
             return (0.0, 0.0)
             
-        # Calculate collision angle relative to car
-        car_angle = self.car.body.angle
-        collision_normal = recent_collision.normal
-        
-        import math
-        normal_angle = math.atan2(collision_normal[1], collision_normal[0])
-        relative_angle = normal_angle - car_angle
-        
-        # Normalize angle to [-π, π]
-        while relative_angle > math.pi:
-            relative_angle -= TWO_PI
-        while relative_angle < -math.pi:
-            relative_angle += TWO_PI
+        # For angle, use the most recent collision data if available
+        collision_angle = 0.0
+        for key, collision_data in self.collision_listener.active_collisions.items():
+            if key[0] == car_id:
+                # Calculate collision angle relative to car
+                car_angle = car.body.angle
+                collision_normal = collision_data.normal
+                
+                normal_angle = math.atan2(collision_normal[1], collision_normal[0])
+                collision_angle = normal_angle - car_angle
+                
+                # Normalize angle to [-π, π]
+                while collision_angle > math.pi:
+                    collision_angle -= TWO_PI
+                while collision_angle < -math.pi:
+                    collision_angle += TWO_PI
+                break
             
-        return (recent_collision.impulse, relative_angle)
+        return (current_impulse, collision_angle)
+    
+    def get_continuous_collision_impulse(self, car_index: int = 0) -> float:
+        """
+        Get the current collision impulse for a car (for continuous penalty calculation).
+        
+        Args:
+            car_index: Index of the car (0-based)
+        
+        Returns:
+            Current collision impulse (0 if no collision)
+        """
+        if not self.cars or car_index < 0 or car_index >= len(self.cars):
+            return 0.0
+            
+        # Get car ID for this index
+        car_id = f"car_{car_index}"
+        
+        # Get current collision impulse from listener
+        return self.collision_listener.get_car_collision_impulse(car_id)
         
     def is_car_on_track(self, car_index: int = 0) -> bool:
         """
@@ -643,9 +684,15 @@ class CarPhysics:
 class CarCollisionListener(Box2D.b2ContactListener):
     """Collision listener for car-track collisions"""
     
-    def __init__(self):
+    def __init__(self, car_physics=None):
         super().__init__()
         self.collisions: List[CollisionData] = []
+        # Track active collisions: key is (car_id, wall_id), value is CollisionData
+        self.active_collisions: Dict[Tuple[str, str], CollisionData] = {}
+        # Track collision impulses per car for continuous penalties
+        self.car_collision_impulses: Dict[str, float] = {}
+        # Reference to parent CarPhysics for accessing disabled_cars
+        self.car_physics = car_physics
         
     def BeginContact(self, contact):
         """Called when collision begins"""
@@ -656,9 +703,36 @@ class CarCollisionListener(Box2D.b2ContactListener):
             collision_point = world_manifold.points[0]
             collision_normal = world_manifold.normal
             
-            # Estimate collision force (simplified)
+            # Identify which body is the car and which is wall
             bodyA = contact.fixtureA.body
             bodyB = contact.fixtureB.body
+            
+            car_body = None
+            car_id = None
+            wall_body = None
+            wall_id = None
+            
+            # Check which body is a car and which is wall
+            if bodyA.userData and bodyA.userData.get("type") == "car":
+                car_body = bodyA
+                car_id = bodyA.userData.get("car_id", "unknown")
+                if bodyB.userData and bodyB.userData.get("type") == "track_wall":
+                    wall_body = bodyB
+                    # Use a stable wall identifier based on position
+                    pos = wall_body.position
+                    wall_id = f"wall_{pos.x:.1f}_{pos.y:.1f}"
+            elif bodyB.userData and bodyB.userData.get("type") == "car":
+                car_body = bodyB  
+                car_id = bodyB.userData.get("car_id", "unknown")
+                if bodyA.userData and bodyA.userData.get("type") == "track_wall":
+                    wall_body = bodyA
+                    # Use a stable wall identifier based on position
+                    pos = wall_body.position
+                    wall_id = f"wall_{pos.x:.1f}_{pos.y:.1f}"
+            
+            if car_body is None or wall_body is None:
+                # No car-wall collision, skip
+                return
             
             # Calculate relative velocity at collision point
             velA = bodyA.GetLinearVelocityFromWorldPoint(collision_point)
@@ -672,7 +746,6 @@ class CarCollisionListener(Box2D.b2ContactListener):
             
             # Calculate relative velocity component along collision normal
             # This gives the actual closing speed in the direction of impact
-            import math
             normal_velocity = (relative_velocity[0] * collision_normal[0] + 
                              relative_velocity[1] * collision_normal[1])
             # Use absolute value of normal velocity for impulse magnitude
@@ -685,13 +758,117 @@ class CarCollisionListener(Box2D.b2ContactListener):
             collision = CollisionData(
                 position=(collision_point[0], collision_point[1]),
                 impulse=collision_impulse,
-                normal=(collision_normal[0], collision_normal[1])
+                normal=(collision_normal[0], collision_normal[1]),
+                car_id=car_id
             )
             
+            # Add to active collisions
+            collision_key = (car_id, wall_id)
+            self.active_collisions[collision_key] = collision
+            
+            # Initialize impulse tracking for this car if needed
+            if car_id not in self.car_collision_impulses:
+                self.car_collision_impulses[car_id] = 0.0
+            
+            # Add initial impulse
+            self.car_collision_impulses[car_id] = collision_impulse
+            
+            # Debug print for collision force (only for active cars)
+            # Extract car index from car_id format "car_X"
+            if car_id and car_id.startswith("car_") and self.car_physics:
+                try:
+                    car_index = int(car_id.split("_")[1])
+                    if car_index not in self.car_physics.disabled_cars:
+                        #print(f"🔥 COLLISION: {car_id} force={collision_impulse:.1f} N⋅s")
+                        pass
+                except (ValueError, IndexError):
+                    # Fallback for malformed car_id
+                    #print(f"🔥 COLLISION: {car_id} force={collision_impulse:.1f} N⋅s")
+                    pass
+            elif not self.car_physics:
+                # No reference to CarPhysics, show all collisions
+                #print(f"🔥 COLLISION: {car_id} force={collision_impulse:.1f} N⋅s")
+                pass
+            
+            # Also add to one-time collision list for logging
             self.collisions.append(collision)
             
+    def EndContact(self, contact):
+        """Called when collision ends"""
+        # Identify which bodies were in contact
+        bodyA = contact.fixtureA.body
+        bodyB = contact.fixtureB.body
+        
+        car_id = None
+        wall_id = None
+        
+        # Find car and wall IDs
+        if bodyA.userData and bodyA.userData.get("type") == "car":
+            car_id = bodyA.userData.get("car_id", "unknown")
+            if bodyB.userData and bodyB.userData.get("type") == "track_wall":
+                # Use same stable wall identifier as BeginContact
+                pos = bodyB.position
+                wall_id = f"wall_{pos.x:.1f}_{pos.y:.1f}"
+        elif bodyB.userData and bodyB.userData.get("type") == "car":
+            car_id = bodyB.userData.get("car_id", "unknown")
+            if bodyA.userData and bodyA.userData.get("type") == "track_wall":
+                # Use same stable wall identifier as BeginContact
+                pos = bodyA.position
+                wall_id = f"wall_{pos.x:.1f}_{pos.y:.1f}"
+        
+        if car_id and wall_id:
+            # Remove from active collisions
+            collision_key = (car_id, wall_id)
+            if collision_key in self.active_collisions:
+                del self.active_collisions[collision_key]
+            
+            # Update impulse for this car - if no more active collisions, set to 0
+            car_has_collisions = any(key[0] == car_id for key in self.active_collisions)
+            if not car_has_collisions:
+                self.car_collision_impulses[car_id] = 0.0
+    
+    def PostSolve(self, contact, impulse):
+        """Called after collision resolution with impulse data"""
+        # Get the normal impulse (force of collision)
+        normal_impulses = impulse.normalImpulses
+        if len(normal_impulses) > 0:
+            total_impulse = sum(normal_impulses)
+            
+            # Identify car involved
+            bodyA = contact.fixtureA.body
+            bodyB = contact.fixtureB.body
+            
+            car_id = None
+            if bodyA.userData and bodyA.userData.get("type") == "car":
+                car_id = bodyA.userData.get("car_id", "unknown")
+            elif bodyB.userData and bodyB.userData.get("type") == "car":
+                car_id = bodyB.userData.get("car_id", "unknown")
+            
+            if car_id and car_id in self.car_collision_impulses:
+                # Update with maximum impulse (to track strongest ongoing collision)
+                self.car_collision_impulses[car_id] = max(self.car_collision_impulses[car_id], total_impulse)
+    
     def get_collisions(self) -> List[CollisionData]:
-        """Get and clear collision list"""
+        """Get and clear one-time collision list"""
         collisions = self.collisions.copy()
         self.collisions.clear()
         return collisions
+    
+    def get_car_collision_impulse(self, car_id: str) -> float:
+        """Get current collision impulse for a specific car"""
+        return self.car_collision_impulses.get(car_id, 0.0)
+    
+    def reset_impulses(self):
+        """Reset impulse tracking for next physics step"""
+        # Reset impulses for cars that have no active collisions
+        for car_id in list(self.car_collision_impulses.keys()):
+            car_has_active_collisions = any(key[0] == car_id for key in self.active_collisions)
+            
+            if not car_has_active_collisions:
+                # No active collisions - completely reset impulse
+                if self.car_collision_impulses[car_id] > 0:
+                    print(f"🔄 IMPULSE RESET: {car_id} (no active collision)")
+                self.car_collision_impulses[car_id] = 0.0
+            else:
+                # Has active collisions - apply light decay to smooth readings
+                self.car_collision_impulses[car_id] *= 0.95

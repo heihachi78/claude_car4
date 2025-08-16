@@ -1,7 +1,8 @@
 """
-Car physics demonstration.
+Car racing competition environment.
 
-This demo shows the complete car physics system in action.
+This demo uses an external control function from default_control.py
+to determine car actions based on observations.
 """
 
 import sys
@@ -9,14 +10,14 @@ import os
 import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.car_env import CarEnv
-import time as ptime
+from default_control import car_control
 
 
 def main():
     print("=" * 50)
     
     # Multi-car demo configuration with custom names
-    num_cars = 10  # Change this to test different numbers of cars (1-10)
+    num_cars = 1  # Change this to test different numbers of cars (1-10)
     car_names = [
         "Lightning",
         "Thunder",
@@ -89,16 +90,13 @@ def main():
         print("🚗 Running simulation...")
         total_reward = 0.0
         
-        # Initialize control variables for each car
-        car_throttles = [0.0] * num_cars
-        car_brakes = [0.0] * num_cars
-        car_steerings = [0.0] * num_cars
+        # Note: Control state is now managed inside car_control function
         
         for step in range(100000):
             if env.check_quit_requested():
                 print(f"   User requested quit at step {step}")
                 break
-            # Calculate individual controls for each car
+            # Calculate individual controls for each car using the control function
             car_actions = []
             
             for car_idx in range(num_cars):
@@ -109,47 +107,10 @@ def main():
                 else:
                     # Single car observation (fallback)
                     car_obs = obs
-                    
-                sensors = car_obs[21:29]  # All 8 sensor distances
-                forward = sensors[0]     # Forward sensor (21)
-                front_left = sensors[1] # Front-right sensor (22) 
-                front_right = sensors[7]  # Front-left sensor (28)
-                current_speed = car_obs[4]  # Speed from observation
                 
-                # Use working control logic from previous version
-                speed_limit = ((forward * 500) - (car_idx*2.5))  / 3.6
-
-                if current_speed * 200 < speed_limit: 
-                    car_throttles[car_idx] += 0.1
-                if current_speed * 200 > speed_limit: 
-                    car_throttles[car_idx] -= 0.1
-
-                if current_speed * 200 < speed_limit: 
-                    car_brakes[car_idx] -= 0.01
-                if current_speed * 200 > speed_limit: 
-                    car_brakes[car_idx] += 0.01
-
-                if front_right > front_left:
-                    car_steerings[car_idx] = front_right / front_left - forward
-                elif front_right < front_left:
-                    car_steerings[car_idx] = front_left / front_right - forward
-                    car_steerings[car_idx] *= -1
-                else:
-                    car_steerings[car_idx] = 0
-
-                # Apply limits and adjustments
-                if car_idx != 5:
-                    car_brakes[car_idx] = max(min(car_brakes[car_idx], 1), 0)
-                    car_steerings[car_idx] = max(min(car_steerings[car_idx], 1), -1)
-                    if abs(car_steerings[car_idx]) > 0.1:
-                        car_throttles[car_idx] -= 0.05
-                    car_throttles[car_idx] = max(min(car_throttles[car_idx], 1), 0)
-                else:
-                    car_brakes[car_idx] = 0
-                    car_steerings[car_idx] = 0
-                    car_throttles[car_idx] = 1
-                
-                car_actions.append([car_throttles[car_idx], car_brakes[car_idx], car_steerings[car_idx]])
+                # Get control action from the control function
+                action = car_control(car_obs)
+                car_actions.append(action)
             
             # Create actions array
             if num_cars == 1:
@@ -327,10 +288,7 @@ def main():
                 obs, info = env.reset()
                 total_reward = 0.0
                 
-                # Reset control variables for all cars
-                car_throttles = [0.0] * num_cars
-                car_brakes = [0.0] * num_cars
-                car_steerings = [0.0] * num_cars
+                # Note: Control state reset is handled inside car_control function
                 
                 # Reset previous lap count tracking and reward tracking for all cars
                 for i in range(num_cars):

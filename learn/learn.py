@@ -86,8 +86,8 @@ class DecayNoiseCallback(BaseCallback):
 
 
 # Noise parameters
-EXPLORATION_NOISE_STD = 0.1
-TARGET_POLICY_NOISE_STD = 0.2
+EXPLORATION_NOISE_STD = 0.5
+TARGET_POLICY_NOISE_STD = 0.3
 TARGET_POLICY_NOISE_CLIP = 0.5
 
 # Create log dir
@@ -145,7 +145,7 @@ except:
         "MlpPolicy", env,
         learning_rate=cosine_schedule(3e-4, 1e-5),
         buffer_size=1_000_000,
-        batch_size=256,
+        batch_size=128,
         tau=0.005,
         gamma=0.99,
         train_freq=1,

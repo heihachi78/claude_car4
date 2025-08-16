@@ -93,7 +93,7 @@ BOX2D_POSITION_ITERATIONS = 2  # Box2D position constraint solver iterations
 
 # Collision Constants
 COLLISION_FORCE_SCALE_FACTOR = 0.1  # Scale factor for collision force estimation (realistic car collision forces)
-COLLISION_MIN_FORCE = 100.0  # Minimum collision force in Newtons
+COLLISION_MIN_FORCE = 10.0  # Minimum collision force in Newtons
 COLLISION_MAX_FORCE = 50000.0  # Maximum realistic collision force in Newtons for validation
 
 # Performance Validation Constants
@@ -417,14 +417,15 @@ ACCELERATION_HISTORY_SIZE = 10  # number of acceleration samples to average for 
 # Car Collision Properties
 CAR_COLLISION_SHAPES = 4  # number of collision shapes for car (corners)
 CAR_COLLISION_RADIUS = 0.3  # radius of corner collision shapes in meters
-COLLISION_FORCE_THRESHOLD = 500.0  # minimum force to register as significant collision (increased to ignore light touches)
+COLLISION_FORCE_THRESHOLD = 50.0  # minimum force to register as significant collision (increased to ignore light touches)
 COLLISION_DAMAGE_FACTOR = 0.001  # damage per unit collision force
 
 # Collision Severity Thresholds (impulse in N·s)
-COLLISION_SEVERITY_MINOR = 10000.0  # Below this is minor collision
-COLLISION_SEVERITY_MODERATE = 30000.0  # Below this is moderate collision
-COLLISION_SEVERITY_SEVERE = 50000.0  # Below this is severe collision
-# Above SEVERE is critical collision
+COLLISION_SEVERITY_MINOR = 500.0  # Below this is minor collision
+COLLISION_SEVERITY_MODERATE = 1000.0  # Below this is moderate collision
+COLLISION_SEVERITY_SEVERE = 2000.0  # Below this is severe collision
+COLLISION_SEVERITY_EXTREME = 5000.0  # Above this is extreme collision (immediate disabling)
+# Above SEVERE but below EXTREME is critical collision
 
 # Collision Reporting
 MAX_COLLISION_HISTORY = 10  # maximum number of recent collisions to track
@@ -613,24 +614,24 @@ TWO_PI = 2 * math.pi  # Full circle in radians
 # =============================================================================
 
 # Positive Rewards
-REWARD_SPEED_MULTIPLIER = 0.02  # Bonus per m/s of speed
+REWARD_SPEED_MULTIPLIER = 0.01  # Bonus per m/s of speed
 REWARD_DISTANCE_MULTIPLIER = 0.01  # Bonus per meter traveled
 REWARD_HIGH_SPEED_THRESHOLD = 25.0  # Speed threshold (m/s) for performance bonus (~90 km/h)
 REWARD_HIGH_SPEED_BONUS = 1.0  # Bonus when exceeding high speed threshold
 REWARD_LAP_COMPLETION = 150.0  # Bonus per completed lap
 REWARD_FAST_LAP_TIME = 40.0  # Time threshold (seconds) for fast lap bonus
 REWARD_FAST_LAP_BONUS = 150.0  # Bonus for completing lap under threshold time
+REWARD_FORWARD_SENSOR_MULTIPLIER = 0.001  # Bonus per normalized forward sensor distance
 
 # Negative Rewards (Penalties)
 PENALTY_LOW_SPEED_THRESHOLD = 0.278  # Speed threshold (m/s) for low speed penalty (1 km/h)
 PENALTY_LOW_SPEED_RATE = 0.001  # Penalty per second when below low speed threshold
 # Scaled collision penalties based on severity
-PENALTY_COLLISION_MINOR = 25.0  # Light scrape penalty
-PENALTY_COLLISION_MODERATE = 50.0  # Moderate hit penalty
-PENALTY_COLLISION_SEVERE = 75.0  # Severe crash penalty
-PENALTY_COLLISION_CRITICAL = 100.0  # Critical crash penalty
-PENALTY_COLLISION = 10.0  # Default/legacy penalty for backward compatibility
-PENALTY_OFF_TRACK = 5.0  # Penalty for leaving track boundaries
+PENALTY_COLLISION_MINOR = 1.0  # Light scrape penalty
+PENALTY_COLLISION_MODERATE = 2.5  # Moderate hit penalty
+PENALTY_COLLISION_SEVERE = 5.0  # Severe crash penalty
+PENALTY_COLLISION_CRITICAL = 10.0  # Critical crash penalty
+PENALTY_COLLISION_EXTREME = 500.0  # Extreme crash penalty (immediate disabling)
 
 # =============================================================================
 # TERMINATION CONDITION CONSTANTS

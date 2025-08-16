@@ -129,7 +129,7 @@ from .constants import (
 class Car:
     """Realistic car physics simulation with Box2D"""
     
-    def __init__(self, world: Box2D.b2World, start_position: Tuple[float, float] = (0.0, 0.0), start_angle: float = 0.0):
+    def __init__(self, world: Box2D.b2World, start_position: Tuple[float, float] = (0.0, 0.0), start_angle: float = 0.0, car_id: str = "car"):
         """
         Initialize car with Box2D physics.
         
@@ -137,10 +137,12 @@ class Car:
             world: Box2D world instance
             start_position: Initial position (x, y) in meters
             start_angle: Initial orientation in radians
+            car_id: Unique identifier for this car
         """
         self.world = world
         self.start_position = start_position
         self.start_angle = start_angle
+        self.car_id = car_id
         
         # Create tyre manager for grip and weight transfer
         self.tyre_manager = TyreManager()
@@ -183,6 +185,9 @@ class Car:
         
         # Create the body
         self.body = self.world.CreateBody(body_def)
+        
+        # Set car identification in userData for collision tracking
+        self.body.userData = {"type": "car", "car_id": self.car_id}
         
         # Create car shape (rectangle)
         shape = Box2D.b2PolygonShape()

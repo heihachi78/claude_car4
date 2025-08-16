@@ -15,6 +15,7 @@ from .constants import (
     COLLISION_SEVERITY_MINOR,
     COLLISION_SEVERITY_MODERATE,
     COLLISION_SEVERITY_SEVERE,
+    COLLISION_SEVERITY_EXTREME,
     TWO_PI
 )
 
@@ -69,8 +70,10 @@ class CollisionEvent:
             return "moderate"
         elif self.impulse < COLLISION_SEVERITY_SEVERE:
             return "severe"
-        else:
+        elif self.impulse < COLLISION_SEVERITY_EXTREME:
             return "critical"
+        else:
+            return "extreme"
             
     def get_direction_description(self) -> str:
         """Get human-readable collision direction"""
@@ -110,12 +113,18 @@ class CollisionReporter:
         self.total_collisions = 0
         self.last_collision_time = -float('inf')
         
+        # Per-car collision tracking to prevent spam
+        self.per_car_last_collision_time = {}  # car_id -> last collision time
+        self.collision_rate_limiter = {}  # car_id -> collision count in current window
+        self.rate_limit_window_start = {}  # car_id -> window start time
+        
         # Statistics tracking
         self.collision_stats = {
             "minor": 0,
             "moderate": 0, 
             "severe": 0,
-            "critical": 0
+            "critical": 0,
+            "extreme": 0
         }
         
         # Direction statistics
@@ -132,7 +141,8 @@ class CollisionReporter:
                         position: Tuple[float, float],
                         impulse: float,
                         normal: Tuple[float, float], 
-                        car_angle: float) -> bool:
+                        car_angle: float,
+                        car_id: Optional[str] = None) -> bool:
         """
         Report a new collision event.
         
@@ -141,6 +151,7 @@ class CollisionReporter:
             impulse: Collision impulse magnitude
             normal: Collision surface normal
             car_angle: Car orientation in radians
+            car_id: Optional car identifier for per-car rate limiting
             
         Returns:
             True if collision was recorded (above threshold and cooldown)
@@ -149,9 +160,34 @@ class CollisionReporter:
         if impulse < COLLISION_FORCE_THRESHOLD:
             return False
             
-        # Check cooldown period
+        # Check global cooldown period (backward compatibility)
         if self.current_simulation_time - self.last_collision_time < COLLISION_COOLDOWN_TIME:
             return False
+            
+        # Check per-car cooldown period to prevent spam from individual cars
+        if car_id is not None:
+            last_car_collision_time = self.per_car_last_collision_time.get(car_id, -float('inf'))
+            if self.current_simulation_time - last_car_collision_time < COLLISION_COOLDOWN_TIME:
+                return False
+                
+            # Implement rate limiting per car (max 5 collisions per second per car)
+            window_duration = 1.0  # 1 second window
+            max_collisions_per_window = 5
+            
+            # Reset window if enough time has passed
+            window_start = self.rate_limit_window_start.get(car_id, self.current_simulation_time)
+            if self.current_simulation_time - window_start >= window_duration:
+                self.rate_limit_window_start[car_id] = self.current_simulation_time
+                self.collision_rate_limiter[car_id] = 0
+            
+            # Check if we've exceeded the rate limit
+            current_count = self.collision_rate_limiter.get(car_id, 0)
+            if current_count >= max_collisions_per_window:
+                return False
+                
+            # Update rate limiter
+            self.collision_rate_limiter[car_id] = current_count + 1
+            self.per_car_last_collision_time[car_id] = self.current_simulation_time
             
         # Create collision event
         collision = CollisionEvent(
@@ -161,6 +197,9 @@ class CollisionReporter:
             car_angle=car_angle,
             timestamp=self.current_simulation_time
         )
+        
+        # Print collision force to console
+        #print(f"Collision Force: {impulse:.1f} N⋅s")
         
         # Add to history
         self.collision_history.append(collision)
@@ -307,6 +346,11 @@ class CollisionReporter:
         self.current_simulation_time = 0.0
         self.total_collisions = 0
         self.last_collision_time = -float('inf')
+        
+        # Reset per-car tracking
+        self.per_car_last_collision_time.clear()
+        self.collision_rate_limiter.clear()
+        self.rate_limit_window_start.clear()
         
         # Reset statistics
         for key in self.collision_stats:
