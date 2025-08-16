@@ -546,6 +546,12 @@ class CarEnv(BaseEnv):
         else:
             self.current_action = np.array(actions[0], dtype=np.float32) if len(actions) > 0 else np.array([0.0, 0.0, 0.0], dtype=np.float32)
         
+        # Track input for each car for stuck detection
+        for car_idx in range(min(len(actions), self.num_cars)):
+            if car_idx < len(actions):
+                throttle, brake, steering = actions[car_idx][0], actions[car_idx][1], actions[car_idx][2]
+                self._track_input_for_car(car_idx, throttle, brake, steering)
+        
         # Filter actions for disabled cars (set to zero action)
         filtered_actions = np.copy(actions)
         for car_idx in self.disabled_cars:
@@ -631,6 +637,110 @@ class CarEnv(BaseEnv):
             else:
                 # Reset collision duration when not colliding severely
                 setattr(self, collision_duration_attr, 0.0)
+            
+            # Check for stuck conditions (independent of collisions)
+            if car_idx < len(self.cars) and self.cars[car_idx]:
+                car = self.cars[car_idx]
+                speed = car.get_velocity_magnitude()
+                
+                # Initialize stuck duration and position tracking if needed
+                stuck_duration_attr = f'_stuck_duration_{car_idx}'
+                stuck_printed_attr = f'_stuck_printed_{car_idx}'  # Track if we've printed stuck message
+                stuck_start_pos_attr = f'_stuck_start_position_{car_idx}'  # Track position when stuck started
+                if not hasattr(self, stuck_duration_attr):
+                    setattr(self, stuck_duration_attr, 0.0)
+                if not hasattr(self, stuck_printed_attr):
+                    setattr(self, stuck_printed_attr, False)
+                if not hasattr(self, stuck_start_pos_attr):
+                    setattr(self, stuck_start_pos_attr, None)
+                
+                # Check if car is moving slowly
+                if speed < STUCK_SPEED_THRESHOLD:
+                    # Get previous stuck duration
+                    prev_stuck_duration = getattr(self, stuck_duration_attr)
+                    
+                    # Accumulate stuck duration
+                    current_stuck_duration = prev_stuck_duration + self.actual_dt
+                    setattr(self, stuck_duration_attr, current_stuck_duration)
+                    
+                    # Get current car position
+                    car_state = self.car_physics.get_car_state(car_idx)
+                    current_position = (car_state[0], car_state[1]) if car_state else (0, 0)
+                    
+                    # Save starting position when stuck detection begins
+                    stuck_start_pos = getattr(self, stuck_start_pos_attr)
+                    if prev_stuck_duration == 0.0:
+                        setattr(self, stuck_start_pos_attr, current_position)
+                        stuck_start_pos = current_position
+                    
+                    # Calculate distance moved since stuck started
+                    distance_moved = 0.0
+                    if stuck_start_pos:
+                        dx = current_position[0] - stuck_start_pos[0]
+                        dy = current_position[1] - stuck_start_pos[1]
+                        distance_moved = (dx**2 + dy**2)**0.5
+                    
+                    # Print when stuck detection starts (only once)
+                    if prev_stuck_duration == 0.0 and not getattr(self, stuck_printed_attr):
+                        car_name = self.car_names[car_idx] if car_idx < len(self.car_names) else f"Car {car_idx}"
+                        #print(f"⚠️  {car_name} stuck detection started (speed: {speed:.2f} m/s)")
+                        setattr(self, stuck_printed_attr, True)
+                    
+                    # Print periodic updates every 2 seconds with distance moved
+                    if current_stuck_duration > 0 and int(current_stuck_duration) % 2 == 0 and int(current_stuck_duration) != int(prev_stuck_duration):
+                        car_name = self.car_names[car_idx] if car_idx < len(self.car_names) else f"Car {car_idx}"
+                        #print(f"   {car_name} stuck for {current_stuck_duration:.1f}s (speed: {speed:.2f} m/s, moved: {distance_moved:.1f}m)")
+                    
+                    # Check if car has been stuck long enough
+                    if current_stuck_duration > STUCK_TIME_THRESHOLD:
+                        # Movement-based stuck detection threshold (1 meter in 10 seconds is clearly stuck)
+                        STUCK_DISTANCE_THRESHOLD = 1.0  # meters
+                        EXTENDED_STUCK_TIME = 15.0  # After 15 seconds, ignore input requirements
+                        
+                        # Check if there have been any meaningful inputs recently for this car
+                        last_input_time_attr = f'_last_meaningful_input_time_{car_idx}'
+                        last_meaningful_input_time = getattr(self, last_input_time_attr, 0.0)
+                        time_since_input = self.simulation_time - last_meaningful_input_time
+                        
+                        # Get current input for this car to check if currently braking
+                        input_history_attr = f'_input_history_{car_idx}'
+                        current_brake = 0.0
+                        if hasattr(self, input_history_attr):
+                            car_input_history = getattr(self, input_history_attr)
+                            if car_input_history:
+                                _, _, current_brake, _ = car_input_history[-1]
+                        
+                        # Determine if car should be disabled based on multiple criteria
+                        should_disable = False
+                        disable_reason = ""
+                        
+                        # Criterion 1: Movement-based detection (most reliable)
+                        if distance_moved < STUCK_DISTANCE_THRESHOLD:
+                            should_disable = True
+                            disable_reason = f"moved only {distance_moved:.1f}m in {current_stuck_duration:.1f}s"
+                        
+                        # Criterion 2: Extended stuck time override (ignore inputs after 15s)
+                        elif current_stuck_duration > EXTENDED_STUCK_TIME:
+                            should_disable = True
+                            disable_reason = f"stuck for {current_stuck_duration:.1f}s (override)"
+                        
+                        # Criterion 3: Original input-based detection (for backward compatibility)
+                        elif (current_brake < STUCK_INPUT_THRESHOLD and 
+                              time_since_input > STUCK_RECENT_INPUT_TIME):
+                            should_disable = True
+                            disable_reason = f"no input for {time_since_input:.1f}s"
+                        
+                        if should_disable:
+                            # Car is stuck - disable it
+                            self.disabled_cars.add(car_idx)
+                            self._just_disabled_cars.add(car_idx)  # Track for final penalty
+                            car_name = self.car_names[car_idx] if car_idx < len(self.car_names) else f"Car {car_idx}"
+                            print(f"🚫 {car_name} disabled due to being STUCK ({disable_reason})")
+                else:
+                    # Reset stuck tracking when car is moving normally
+                    setattr(self, stuck_duration_attr, 0.0)
+                    setattr(self, stuck_printed_attr, False)
+                    setattr(self, stuck_start_pos_attr, None)
     
     def _get_multi_obs(self):
         """Get observations for all cars"""
@@ -799,17 +909,19 @@ class CarEnv(BaseEnv):
                     reward += REWARD_HIGH_SPEED_BONUS * self.actual_dt
                 
                 # Forward sensor reward - reward for having clear space ahead (time-based)
-                # Get sensor distances for this car
-                world = self.car_physics.world if self.car_physics else None
-                car_position = (car_state[0], car_state[1])
-                car_orientation = car_state[4] if len(car_state) > 4 else 0.0
-                sensor_distances = self.distance_sensor.get_sensor_distances(
-                    world, car_position, car_orientation
-                )
-                # Normalize forward sensor distance (index 0)
-                normalized_forward_distance = np.clip(sensor_distances[0] / SENSOR_MAX_DISTANCE, 0.0, 1.0)
-                # Apply reward per second of having forward space
-                reward += REWARD_FORWARD_SENSOR_MULTIPLIER * normalized_forward_distance * self.actual_dt
+                # Only reward moving cars to prevent stationary cars from getting positive rewards
+                if speed > 0.1:  # Only reward if car is actually moving (> 0.1 m/s threshold)
+                    # Get sensor distances for this car
+                    world = self.car_physics.world if self.car_physics else None
+                    car_position = (car_state[0], car_state[1])
+                    car_orientation = car_state[4] if len(car_state) > 4 else 0.0
+                    sensor_distances = self.distance_sensor.get_sensor_distances(
+                        world, car_position, car_orientation
+                    )
+                    # Normalize forward sensor distance (index 0)
+                    normalized_forward_distance = np.clip(sensor_distances[0] / SENSOR_MAX_DISTANCE, 0.0, 1.0)
+                    # Apply reward per second of having forward space
+                    reward += REWARD_FORWARD_SENSOR_MULTIPLIER * normalized_forward_distance * self.actual_dt
                 
                 # Lap completion bonus
                 if car_index < len(self.car_lap_timers):
@@ -852,8 +964,6 @@ class CarEnv(BaseEnv):
         
         # Only check non-collision termination conditions for followed car
         if self.followed_car_index < len(self.cars) and self.cars[self.followed_car_index]:
-            followed_car = self.cars[self.followed_car_index]
-            
             # Only check reward termination if followed car is not disabled 
             if self.followed_car_index not in self.disabled_cars:
                 # Check cumulative reward for followed car
@@ -868,11 +978,8 @@ class CarEnv(BaseEnv):
                             # In demo mode, just log the event but don't terminate
                             logger.debug(f"Low reward detected for car {self.followed_car_index} (cumulative: {followed_car_reward:.2f}) but demo mode active - not terminating")
                 
-                # Check if followed car is stuck (but don't terminate on collisions)
-                speed = followed_car.get_velocity_magnitude()
-                if speed < STUCK_SPEED_THRESHOLD and self.simulation_time > STUCK_TIME_THRESHOLD:
-                    self.termination_reason = f"stuck_car_{self.followed_car_index}"
-                    return True, False
+                # Note: Stuck detection is now handled per-car in _check_and_disable_cars()
+                # Individual cars get disabled when stuck, rather than terminating the environment
         
         # Time-based termination
         if self.reset_on_lap and self.simulation_time > TERMINATION_MAX_TIME:
@@ -949,7 +1056,7 @@ class CarEnv(BaseEnv):
         return infos
         
     def _track_input(self, throttle: float, brake: float, steering: float) -> None:
-        """Track control inputs for stuck detection"""
+        """Track control inputs for stuck detection (legacy method for single car compatibility)"""
         current_time = self.simulation_time
         
         # Add current input to history
@@ -963,6 +1070,36 @@ class CarEnv(BaseEnv):
         input_magnitude = abs(throttle) + abs(brake) + abs(steering)
         if input_magnitude >= STUCK_INPUT_THRESHOLD:
             self.last_meaningful_input_time = current_time
+    
+    def _track_input_for_car(self, car_idx: int, throttle: float, brake: float, steering: float) -> None:
+        """Track control inputs for stuck detection for a specific car"""
+        current_time = self.simulation_time
+        
+        # Initialize per-car input tracking if needed
+        input_history_attr = f'_input_history_{car_idx}'
+        last_input_time_attr = f'_last_meaningful_input_time_{car_idx}'
+        
+        if not hasattr(self, input_history_attr):
+            setattr(self, input_history_attr, [])
+        if not hasattr(self, last_input_time_attr):
+            # Initialize to current time so time_since_input starts from 0
+            setattr(self, last_input_time_attr, current_time)
+        
+        # Get current car's input history
+        car_input_history = getattr(self, input_history_attr)
+        
+        # Add current input to this car's history
+        car_input_history.append((current_time, throttle, brake, steering))
+        
+        # Remove old inputs (keep only recent history)
+        cutoff_time = current_time - STUCK_RECENT_INPUT_TIME
+        car_input_history = [(t, th, br, st) for t, th, br, st in car_input_history if t >= cutoff_time]
+        setattr(self, input_history_attr, car_input_history)
+        
+        # Check if current input is meaningful
+        input_magnitude = abs(throttle) + abs(brake) + abs(steering)
+        if input_magnitude >= STUCK_INPUT_THRESHOLD:
+            setattr(self, last_input_time_attr, current_time)
         
     def _process_physics_collisions(self) -> None:
         """Process collision events from physics system"""
