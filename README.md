@@ -111,13 +111,13 @@ The environment provides a comprehensive 29-dimensional observation vector, all 
 
 #### Normalization Constants
 ```python
-NORM_MAX_POSITION = 1000.0        # ±1000m world bounds
-NORM_MAX_VELOCITY = 50.0          # Up to 180 km/h (50 m/s)
-NORM_MAX_ANGULAR_VEL = 10.0       # Rotation speed limit
-NORM_MAX_TYRE_LOAD = 8000.0       # Maximum tire force
-NORM_MAX_TYRE_TEMP = 120.0        # Temperature in Celsius
+NORM_MAX_POSITION = 10000.0       # ±10000m world bounds
+NORM_MAX_VELOCITY = 200.0         # Up to 720 km/h (200 m/s)
+NORM_MAX_ANGULAR_VEL = 10.0       # Rotation speed limit (rad/s)
+NORM_MAX_TYRE_LOAD = 23544.0      # Maximum tire force (CAR_MASS * GRAVITY * 2.0)
+NORM_MAX_TYRE_TEMP = 200.0        # Temperature in Celsius
 NORM_MAX_TYRE_WEAR = 100.0        # Wear percentage
-NORM_MAX_COLLISION_IMPULSE = 1000.0 # Collision severity
+NORM_MAX_COLLISION_IMPULSE = 100000.0 # Collision severity (N·s)
 ```
 
 ### Action Space
@@ -1001,10 +1001,331 @@ tracks/
 ```
 
 ### Adding New Tracks
-1. Create `.track` file in `tracks/` directory
-2. Define track segments with start/end points
-3. Include GRID or STARTLINE segment for car positioning
-4. Test with `python demo/car_demo.py`
+
+Creating custom tracks involves defining track segments in a `.track` file format. The track system supports straight sections, curves, and special positioning segments.
+
+#### Track File Format
+
+Track files use a simple command-based format with one command per line. The track is built sequentially, with each segment connecting to the previous one.
+
+```
+# Comments start with #
+WIDTH 25           # Set track width (optional, default used if omitted)
+GRID               # Starting grid (REQUIRED - must be first segment)
+STARTLINE          # Start/finish line for timing
+STRAIGHT 200       # Straight segment of 200 meters
+LEFT 180 300       # Left turn: 180 degrees, 300 meter radius
+RIGHT 90 150       # Right turn: 90 degrees, 150 meter radius
+```
+
+#### Supported Commands
+
+**1. WIDTH - Set track width (optional)**
+```
+WIDTH 25
+```
+- Sets the track width in meters for all subsequent segments
+- Must be used before any track segments if you want custom width
+- Default width used if not specified
+
+**2. GRID - Starting grid positioning (REQUIRED)**
+```
+GRID
+```
+- Must be the first track segment in every track file
+- Defines where cars spawn at the start
+- Creates the starting grid with default length
+- Required for proper car positioning and initialization
+
+**3. STARTLINE - Start/finish line for timing**
+```
+STARTLINE  
+```
+- Creates the timing line for lap detection
+- Usually placed after GRID
+- Required for lap timing to work properly
+
+**4. STRAIGHT - Straight track sections**
+```
+STRAIGHT 200
+```
+- Creates a straight segment extending from the current track position
+- Parameter: length in meters
+- Track continues in the current direction
+
+**5. LEFT - Left turn sections**
+```
+LEFT 180 300
+```
+- Creates a left-hand curved segment
+- First parameter: turn angle in degrees (0-360)
+- Second parameter: curve radius in meters
+- Track curves left from current direction
+
+**6. RIGHT - Right turn sections** 
+```
+RIGHT 90 150
+```
+- Creates a right-hand curved segment  
+- First parameter: turn angle in degrees (0-360)
+- Second parameter: curve radius in meters
+- Track curves right from current direction
+
+**7. FINISHLINE - Finish line marker (optional)**
+```
+FINISHLINE
+```
+- Creates a dedicated finish line separate from start line
+- Used for linear (non-circular) tracks
+- Optional - STARTLINE serves as finish line for circular tracks
+
+#### Track Design Guidelines
+
+**1. Coordinate System**
+- Origin (0,0) can be anywhere in your track design
+- Use meters as the unit for all coordinates
+- Positive X typically points right, positive Y points up
+
+**2. Track Width Recommendations**
+- **Narrow tracks**: 15-20 meters (tight racing)
+- **Standard tracks**: 25-35 meters (balanced)
+- **Wide tracks**: 40-60 meters (multiple racing lines)
+
+**3. Curve Design**
+- **Radius guidelines**: 30-200 meters for realistic turns
+- **Banking**: Not directly supported, use wider curves for high-speed sections
+- **Chicanes**: Create with alternating short curves
+
+**4. Track Length**
+- **Sprint tracks**: 1-3 km
+- **Standard tracks**: 3-6 km  
+- **Endurance tracks**: 6+ km
+
+#### Step-by-Step Track Creation
+
+**Step 1: Plan Your Layout**
+```
+1. Sketch your track on paper or design software
+2. Identify key coordinates for corners and straights
+3. Decide on track width for each section
+4. Plan start/finish line location
+```
+
+**Step 2: Create Track File**
+```bash
+# Create new track file
+touch tracks/my_custom_track.track
+```
+
+**Step 3: Define Track Segments**
+
+Example track file structure:
+```
+# Set track width for all segments
+WIDTH 30
+
+# Starting area (REQUIRED)
+GRID
+STARTLINE
+
+# Main straight
+STRAIGHT 400
+
+# Turn 1 - Right hand corner
+RIGHT 90 150
+
+# Back straight
+STRAIGHT 600
+
+# Turn 2 - Left hand corner  
+LEFT 90 150
+
+# Turn 3 - Right hand corner
+RIGHT 90 150
+
+# Final straight back to start
+STRAIGHT 200
+```
+
+**Step 4: Track File Best Practices**
+
+```
+# Use comments to organize sections
+# Comments start with #
+
+# Track Configuration
+WIDTH 25
+
+# SECTION 1: Start/Finish Area
+GRID
+STARTLINE
+
+# SECTION 2: First Corner Complex
+STRAIGHT 300
+RIGHT 45 100    # Gentle right turn
+RIGHT 45 100    # Continue right turn
+
+# SECTION 3: Back Straight
+STRAIGHT 600
+```
+
+**Step 5: Testing and Validation**
+
+```bash
+# Test your track
+python demo/car_demo.py
+
+# Edit your track file path in the demo if needed:
+# env = CarEnv(track_file="tracks/my_custom_track.track")
+```
+
+#### Example: Creating a Simple Oval
+
+```
+# Simple NASCAR-style oval track
+# Approximately 2.4km total length
+
+# Track configuration
+WIDTH 35
+
+# Starting area
+GRID
+STARTLINE
+
+# Front straight (start/finish)
+STRAIGHT 600
+
+# Turn 1 & 2 (first corner complex)
+RIGHT 180 200
+
+# Back straight
+STRAIGHT 600
+
+# Turn 3 & 4 (second corner complex)  
+RIGHT 180 200
+```
+
+#### Example: Creating a Road Course
+
+```
+# Technical road course inspired by classic circuits
+# Approximately 4.2km with varied corner types
+
+# Track configuration (wider for road course)
+WIDTH 30
+
+# Starting area
+GRID  
+STARTLINE
+
+# Main straight
+STRAIGHT 800
+
+# Turn 1 - Fast right-hander
+RIGHT 60 300
+
+# Esses section (S-curves)
+STRAIGHT 200
+LEFT 45 150
+RIGHT 90 120
+LEFT 45 150
+
+# Long straight (overtaking zone)
+STRAIGHT 1000
+
+# Chicane complex
+RIGHT 30 100
+LEFT 60 80
+RIGHT 30 100
+
+# Technical section
+STRAIGHT 300
+LEFT 90 180    # Slow left turn
+STRAIGHT 400
+RIGHT 120 150  # Fast sweeper
+STRAIGHT 200
+
+# Final corner leading to start/finish
+LEFT 75 200
+STRAIGHT 400
+```
+
+#### Common Issues and Solutions
+
+**Issue: Cars spawn incorrectly**
+- **Solution**: Ensure GRID segment is properly defined
+- **Check**: GRID coordinates should form a clear straight line
+
+**Issue: Track rendering problems**
+- **Solution**: Verify all coordinates are reasonable (not too large/small)
+- **Check**: Ensure curves have valid center points and radii
+
+**Issue: Gaps in track**
+- **Solution**: Make sure segment endpoints connect properly
+- **Check**: End point of one segment should match start point of next
+
+**Issue: Cars can't complete laps**
+- **Solution**: Ensure track forms a complete closed loop
+- **Check**: Last segment should connect back to first segment
+
+#### Advanced Track Features
+
+**Variable Width Sections**
+```
+# Start with narrow technical section
+WIDTH 20
+GRID
+STARTLINE
+STRAIGHT 300
+
+# Widen for high-speed section
+WIDTH 45
+STRAIGHT 800
+RIGHT 90 250
+
+# Return to standard width
+WIDTH 30
+STRAIGHT 400
+```
+
+**Complex Corner Combinations** 
+```
+# Multi-apex corner complex
+RIGHT 30 200    # Entry
+RIGHT 30 150    # Apex 1  
+RIGHT 30 200    # Apex 2
+STRAIGHT 100    # Short straight
+LEFT 45 120     # Quick left
+```
+
+**Chicane Sequences**
+```
+# Classic chicane pattern
+STRAIGHT 500
+RIGHT 25 80     # Quick right
+LEFT 50 90      # Harder left
+RIGHT 25 80     # Quick right
+STRAIGHT 600
+```
+
+#### Track Testing Checklist
+
+- [ ] GRID or STARTLINE segment included
+- [ ] Track forms complete closed loop
+- [ ] All segments connect properly (no gaps)
+- [ ] Track width appropriate for intended racing style
+- [ ] Coordinate values reasonable (meters, not too large)
+- [ ] Cars can spawn and drive without immediate collision
+- [ ] Lap timing works correctly
+- [ ] Track provides good racing opportunities
+
+#### Performance Considerations
+
+- **Segment Count**: 10-50 segments typical (more segments = smoother curves but slower loading)
+- **Coordinate Range**: Keep within ±10000 meters for optimal performance
+- **Curve Complexity**: Simpler curves render faster than complex multi-segment curves
+
+Your custom track will be automatically integrated with all environment features including lap timing, collision detection, distance sensors, and multi-car racing.
 
 ### Custom Reward Functions
 Override `_calculate_reward()` method in `CarEnv`:
