@@ -45,11 +45,11 @@ def load_td3_model():
         print("TD3 not available, using rule-based control")
         return False
         
-    model_path = "./learn/checkpoints/model_1500000_steps.zip"
+    model_path = "./learn/checkpoints/model_1750000_steps.zip"
     
     # Check if running from demo/ directory, adjust path accordingly
     if not os.path.exists(model_path):
-        model_path = "../learn/checkpoints/model_1500000_steps.zip"
+        model_path = "../learn/checkpoints/model_1750000_steps.zip"
     
     try:
         model_state['td3_model'] = TD3.load(model_path)
