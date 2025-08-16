@@ -1138,10 +1138,10 @@ class CarEnv(BaseEnv):
             # For other collisions, apply penalty per second
             if collision_impulse >= COLLISION_SEVERITY_EXTREME:
                 penalty_applied = collision_penalty  # Full penalty for extreme collision
-                print(f"💰 EXTREME PENALTY: car={self.followed_car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.1f} (FULL EXTREME PENALTY)")
+                #print(f"💰 EXTREME PENALTY: car={self.followed_car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.1f} (FULL EXTREME PENALTY)")
             else:
                 penalty_applied = collision_penalty * self.actual_dt  # Normal per-second penalty
-                print(f"💰 REWARD PENALTY: car={self.followed_car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.3f} (rate={collision_penalty:.1f}/s)")
+                #print(f"💰 REWARD PENALTY: car={self.followed_car_index} impulse={collision_impulse:.1f} penalty={penalty_applied:.3f} (rate={collision_penalty:.1f}/s)")
             
             reward -= penalty_applied
             
