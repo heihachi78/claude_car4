@@ -761,7 +761,7 @@ class Renderer:
             # Add highlighting for followed car
             if is_followed:
                 text_color = (255, 255, 0)  # Yellow for followed car
-                name = f"► {name} ◄"  # Add arrows for emphasis
+                name = f"* {name} *"  # Add arrows for emphasis
             
             # Render text
             text_surface = self._name_font.render(name, True, text_color)
