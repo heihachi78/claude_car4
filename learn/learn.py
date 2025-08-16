@@ -9,8 +9,8 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.noise import NormalActionNoise
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.car_env import CarEnv
 
 
@@ -28,14 +28,17 @@ class SaveModelCallback(BaseCallback):
         os.makedirs(save_path, exist_ok=True)
         
     def _on_step(self) -> bool:
-        if self.n_calls % self.save_freq == 0:
-            self.save_count += 1
-            model_path = os.path.join(self.save_path, f"model_{self.num_timesteps}_steps")
-            self.model.save(model_path)
-            self.model.save_replay_buffer(f"./learn/checkpoints/replay_buffer_{self.num_timesteps}.pkl")
-            
-            if self.verbose > 0:
-                print(f"Saved model checkpoint to {model_path} at step {self.num_timesteps}")
+        # Use timesteps instead of calls to work correctly with multiple environments
+        if self.num_timesteps % self.save_freq == 0 and self.num_timesteps > 0:
+            # Only save if we haven't already saved at this timestep
+            if self.num_timesteps // self.save_freq > self.save_count:
+                self.save_count = self.num_timesteps // self.save_freq
+                model_path = os.path.join(self.save_path, f"model_{self.num_timesteps}_steps")
+                self.model.save(model_path)
+                self.model.save_replay_buffer(f"./learn/checkpoints/replay_buffer_{self.num_timesteps}.pkl")
+                
+                if self.verbose > 0:
+                    print(f"Saved model checkpoint to {model_path} at step {self.num_timesteps}")
                 
         return True
 
@@ -86,9 +89,9 @@ class DecayNoiseCallback(BaseCallback):
 
 
 # Noise parameters
-EXPLORATION_NOISE_STD = 0.2
+EXPLORATION_NOISE_STD = 0.3
 TARGET_POLICY_NOISE_STD = 0.3
-TARGET_POLICY_NOISE_CLIP = 0.5
+TARGET_POLICY_NOISE_CLIP = 0.3
 
 # Create log dir
 log_dir = "./logs/"
@@ -143,7 +146,7 @@ try:
 except:
     model = TD3(
         "MlpPolicy", env,
-        learning_rate=cosine_schedule(3e-4, 1e-5),
+        learning_rate=cosine_schedule(1e-3, 1e-4),
         buffer_size=1_000_000,
         batch_size=128,
         tau=0.005,
@@ -155,19 +158,19 @@ except:
         target_noise_clip=TARGET_POLICY_NOISE_CLIP,
         verbose=1,
         tensorboard_log='./tensorboard/',
-        learning_starts=125_000,
-        policy_kwargs=dict(net_arch=[1024, 1024])
+        learning_starts=25_000,
+        policy_kwargs=dict(net_arch=[512, 512])
     )
     print("Created new model")
 
 # Callbacks
 save_callback = SaveModelCallback(save_freq=250000, save_path="./learn/checkpoints", verbose=1)
 decay_noise_callback = DecayNoiseCallback(
-    decay_freq=2_500_000,
-    decay_factor=0.8,
-    min_action_sigma=0.02,
-    min_target_policy_noise=0.05,
-    min_target_noise_clip=0.1,
+    decay_freq=500_000,
+    decay_factor=0.9,
+    min_action_sigma=0.01,
+    min_target_policy_noise=0.02,
+    min_target_noise_clip=0.05,
     verbose=1
 )
 
@@ -175,7 +178,7 @@ decay_noise_callback = DecayNoiseCallback(
 model.learn(
     total_timesteps=25_000_000,
     tb_log_name="run_1",
-    log_interval=1,
+    log_interval=8,
     callback=[save_callback, decay_noise_callback]
 )
 

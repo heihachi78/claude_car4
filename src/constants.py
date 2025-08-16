@@ -625,7 +625,7 @@ REWARD_FORWARD_SENSOR_MULTIPLIER = 5  # Bonus per normalized forward sensor dist
 
 # Negative Rewards (Penalties)
 PENALTY_LOW_SPEED_THRESHOLD = 0.278  # Speed threshold (m/s) for low speed penalty (1 km/h)
-PENALTY_LOW_SPEED_RATE = 0.001  # Penalty per second when below low speed threshold
+PENALTY_LOW_SPEED_RATE = 0.05  # Penalty per second when below low speed threshold
 # Scaled collision penalties based on severity
 PENALTY_COLLISION_MINOR = 25  # Light scrape penalty
 PENALTY_COLLISION_MODERATE = 50  # Moderate hit penalty

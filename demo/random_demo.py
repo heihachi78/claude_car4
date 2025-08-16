@@ -20,6 +20,10 @@ def main():
                  reset_on_lap=True,
                  enable_fps_limit=False)
     
+    print("Action space:", env.action_space)
+    print("Low:", env.action_space.low)
+    print("High:", env.action_space.high)
+    
     try:
         # Reset environment first
         obs, info = env.reset()
