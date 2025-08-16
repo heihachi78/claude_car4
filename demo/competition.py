@@ -11,13 +11,14 @@ import numpy as np
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.car_env import CarEnv
 from default_control import car_control
+from td3_control import car_control as td3_car_control
 
 
 def main():
     print("=" * 50)
     
     # Multi-car demo configuration with custom names
-    num_cars = 1  # Change this to test different numbers of cars (1-10)
+    num_cars = 10  # Change this to test different numbers of cars (1-10)
     car_names = [
         "Lightning",
         "Thunder",
@@ -109,7 +110,10 @@ def main():
                     car_obs = obs
                 
                 # Get control action from the control function
-                action = car_control(car_obs)
+                if car_idx == 0:
+                    action = td3_car_control(car_obs)
+                else:
+                    action = car_control(car_obs)
                 car_actions.append(action)
             
             # Create actions array
