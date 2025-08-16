@@ -918,7 +918,7 @@ BOX2D_TIME_STEP = 1.0/120.0       # 120Hz physics
 DRAG_COEFFICIENT = 0.3            # Aerodynamic drag
 
 # Reward parameters
-REWARD_SPEED_MULTIPLIER = 2.0     # Speed reward scaling
+REWARD_SPEED_MULTIPLIER = 0.004     # Speed reward scaling
 REWARD_DISTANCE_MULTIPLIER = 0.1  # Distance reward scaling
 REWARD_LAP_COMPLETION = 1000.0    # Lap completion bonus
 PENALTY_COLLISION_SEVERE = -50.0  # Severe collision penalty

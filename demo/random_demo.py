@@ -39,6 +39,7 @@ def main():
                 break
 
             action = np.array(env.action_space.sample(), dtype=np.float32)
+            action = [1, 0, 0]
 
             obs, reward, terminated, truncated, info = env.step(action)
             total_reward += reward

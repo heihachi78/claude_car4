@@ -49,6 +49,7 @@ from .constants import (
     PENALTY_COLLISION_CRITICAL,
     PENALTY_COLLISION_EXTREME,
     # Collision severity constants
+    COLLISION_FORCE_THRESHOLD,
     COLLISION_SEVERITY_MINOR,
     COLLISION_SEVERITY_MODERATE,
     COLLISION_SEVERITY_SEVERE,
@@ -736,7 +737,11 @@ class CarEnv(BaseEnv):
                 
                 # Speed reward - time-based
                 speed = car.get_velocity_magnitude()
-                reward += speed**2 * REWARD_SPEED_MULTIPLIER * self.actual_dt
+                
+                # NEW: Only give speed reward when NOT colliding with walls
+                collision_impulse = self.car_physics.get_continuous_collision_impulse(car_index)
+                if collision_impulse <= COLLISION_FORCE_THRESHOLD:
+                    reward += speed**2 * REWARD_SPEED_MULTIPLIER * self.actual_dt
                 
                 # Penalty for being too slow
                 if speed < PENALTY_LOW_SPEED_THRESHOLD:
@@ -1091,7 +1096,11 @@ class CarEnv(BaseEnv):
         
         # Speed reward (encourage forward progress) - time-based
         speed = followed_car.get_velocity_magnitude()
-        reward += speed**2 * REWARD_SPEED_MULTIPLIER * self.actual_dt  # Reward per second of speed
+        
+        # NEW: Only give speed reward when NOT colliding with walls
+        collision_impulse = self.car_physics.get_continuous_collision_impulse(self.followed_car_index)
+        if collision_impulse <= COLLISION_FORCE_THRESHOLD:
+            reward += speed**2 * REWARD_SPEED_MULTIPLIER * self.actual_dt  # Reward per second of speed
         
         # NEW: Penalty for being too slow
         # Penalty per second when speed is less than threshold

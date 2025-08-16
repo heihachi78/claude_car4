@@ -424,7 +424,7 @@ COLLISION_DAMAGE_FACTOR = 0.001  # damage per unit collision force
 COLLISION_SEVERITY_MINOR = 500.0  # Below this is minor collision
 COLLISION_SEVERITY_MODERATE = 1000.0  # Below this is moderate collision
 COLLISION_SEVERITY_SEVERE = 2000.0  # Below this is severe collision
-COLLISION_SEVERITY_EXTREME = 5000.0  # Above this is extreme collision (immediate disabling)
+COLLISION_SEVERITY_EXTREME = 50000.0  # Above this is extreme collision (immediate disabling)
 # Above SEVERE but below EXTREME is critical collision
 
 # Collision Reporting
