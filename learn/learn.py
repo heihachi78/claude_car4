@@ -86,7 +86,7 @@ class DecayNoiseCallback(BaseCallback):
 
 
 # Noise parameters
-EXPLORATION_NOISE_STD = 0.5
+EXPLORATION_NOISE_STD = 0.2
 TARGET_POLICY_NOISE_STD = 0.3
 TARGET_POLICY_NOISE_CLIP = 0.5
 

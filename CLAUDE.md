@@ -20,6 +20,13 @@ This is a realistic car racing simulation and reinforcement learning environment
 - `car_physics.py` - Box2D integration and realistic physics simulation
 - `car.py` - Individual car physics with engine, tires, and aerodynamics
 
+**Demo Scripts** (`demo/`):
+- `car_demo.py` - Basic environment demonstration
+- `random_demo.py` - Random action demonstration
+- `discrete_action_demo.py` - Discrete action space demo
+- `competition.py` - Multi-car competition with external control
+- `default_control.py` - Example control function for competition
+
 **Physics Systems**:
 - `tyre_manager.py` / `tyre.py` - Tire wear, temperature, pressure, and grip modeling
 - `collision.py` - Collision detection and damage reporting
@@ -74,6 +81,9 @@ python demo/random_demo.py
 
 # Run discrete action demo
 python demo/discrete_action_demo.py
+
+# Run competition demo with external control
+python demo/competition.py
 ```
 
 ### Training
@@ -88,7 +98,7 @@ python learn/learn.py
 
 ### Testing
 ```bash
-# Run all tests
+# Run all tests (configured via pytest.ini)
 pytest
 
 # Run specific test file
@@ -96,6 +106,8 @@ pytest test/test_car.py
 
 # Run with verbose output
 pytest -v
+
+# Test configuration in pytest.ini sets testpaths=test and pythonpath=.
 ```
 
 ### Monitoring & Debugging
@@ -120,6 +132,7 @@ pip install -r requirements.txt
 # - box2d-py==2.3.8 (physics simulation)
 # - pygame==2.5.2 (rendering)
 # - numpy==1.26.3 (numerical operations)
+# - pytest==7.4.4 (testing framework)
 # - stable-baselines3 (for training, not in requirements.txt)
 ```
 
