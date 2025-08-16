@@ -38,7 +38,7 @@ def main():
                  num_cars=num_cars, 
                  reset_on_lap=False, 
                  render_mode="human",
-                 enable_fps_limit=False,
+                 enable_fps_limit=True,
                  car_names=car_names)
     
     print(f"🎮 CONTROLS:")
